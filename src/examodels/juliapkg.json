@@ -1,0 +1,13 @@
+{
+    "julia": "1.9",
+    "packages": {
+        "ExaModels": {
+            "uuid": "1037b233-b668-4ce9-9b63-f9f681f55dd2",
+            "version": "0.10"
+        },
+        "NLPModels": {
+            "uuid": "a4795742-8479-5a88-8948-cc11e1c8c1a6",
+            "version": "0.21"
+        }
+    }
+}
