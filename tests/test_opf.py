@@ -1,11 +1,10 @@
 """AC optimal power flow: records as index sets, field access, constraint augmentation."""
 import os
-import os
 import pathlib
 import sys
+from collections import namedtuple
 
 import pytest
-from collections import namedtuple
 
 import examodels as exa
 
@@ -59,7 +58,7 @@ def test_augmentation_adds_terms_to_existing_rows():
     x = core.add_var(3, start=1.0)
     y = core.add_var(3, start=1.0)
     Row = namedtuple("Row", "i c")
-    rows = exa.Records([Row(k, 1.0) for k in range(3)], index=["i"])
+    rows = [Row(k, 1.0) for k in range(3)]
     con = core.add_con(r.c + x[r.i] for r in rows)
     core.add_con(con, ((r.i, y[r.i]) for r in rows))
     model = exa.Model(core)
@@ -69,14 +68,17 @@ def test_augmentation_adds_terms_to_existing_rows():
     assert np.allclose(model.constraints(np.ones(6)), 3.0)
 
 
-def test_records_require_named_tuples_not_dicts():
-    with pytest.raises(TypeError, match="named tuples, not dicts"):
-        exa.Records([{"i": 0, "c": 1.0}], index=["i"])
+def test_an_index_set_of_dicts_is_refused_clearly():
+    """The obvious wrong thing to reach for must say so, not fail further along."""
+    core = exa.Core()
+    x = core.add_var(2, start=1.0)
+    with pytest.raises(TypeError, match="no field order"):
+        core.add_obj(lambda r: x[r["i"]], over=[{"i": 0}, {"i": 1}])
 
 
-def test_generator_over_records_recovers_the_table():
+def test_a_generator_over_a_table_recovers_it():
     Row = namedtuple("Row", "i c")
-    rows = exa.Records([Row(k, float(k)) for k in range(4)], index=["i"])
+    rows = [Row(k, float(k)) for k in range(4)]
     core = exa.Core()
     x = core.add_var(4, start=1.0)
     core.add_obj(r.c * x[r.i]**2 for r in rows)

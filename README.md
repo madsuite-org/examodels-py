@@ -138,7 +138,7 @@ Everything crossing the boundary is a Python scalar, a `range`, or a numpy array
 x = core.add_var(T, N, lvar=np.zeros((T, N)))
 
 Cell = namedtuple("Cell", "t i")
-grid = exa.Records([Cell(t, i) for t in range(1, T) for i in range(N)], index=["t", "i"])
+grid = [Cell(t, i) for t in range(1, T) for i in range(N)]
 core.add_con(x[c.t, c.i] - x[c.t - 1, c.i] for c in grid)
 ```
 
@@ -147,17 +147,23 @@ the backend's own column-major storage never surfaces.
 
 ## Indexing over data
 
-An index set can be a table rather than a range, with the fields available on the
-traced row. Columns holding positions of variables are declared, and stay 0-based
-like everything else:
+An index set can be a table of rows rather than a range, with the fields available
+on the traced row. A row can be a named tuple, a dataclass, a class with
+`__slots__`, or a row of a numpy structured array — anything with named fields. A
+pandas frame converts with `df.to_records(index=False)`. Nothing needs wrapping:
 
 ```python
-gen = exa.Records({"i": [...], "bus": [...], "cost1": [...]}, index=["i", "bus"])
-core.add_obj(g.cost1 * pg[g.i]**2 for g in gen)
+Gen = namedtuple("Gen", "i bus cost1")
+gen = [Gen(0, 3, 1100.0), ...]
 
-balance = core.add_con(b.pd + b.gs * vm[b.i]**2 for b in bus)
-core.add_con(balance, ((a.bus, p[a.i]) for a in arc))          # add terms into rows
+exa.add_obj(core, lambda g: g.cost1 * pg[g.i]**2, over=gen)
+
+balance = exa.add_con(core, lambda b: b.pd + b.gs * vm[b.i]**2, over=bus)
+exa.add_con(core, balance, lambda a: (a.bus, p[a.i]), over=arc)   # terms into rows
 ```
+
+Whole-numbered columns stay integers, so a field can be used as a variable index;
+everything else becomes a float.
 
 `examples/ac_opf.py` builds AC optimal power flow this way and solves the PGLib
 benchmark cases; `examples/matpower.py` reads the `.m` files, so the example needs

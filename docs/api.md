@@ -29,9 +29,6 @@
 .. autoclass:: examodels.Expression
    :members:
 
-.. autoclass:: examodels.Records
-   :members:
-
 .. autoclass:: examodels.Node
    :members:
 ```

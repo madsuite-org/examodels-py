@@ -9,7 +9,7 @@ import numpy as _np
 from . import _bridge as _b
 
 __all__ = ["Node", "TupleNode", "Block", "Constraint", "Expression", "Product",
-           "Records", "Constant", "sum", "prod"]
+           "Constant", "sum", "prod"]
 
 _BINARY = {"add": "+", "sub": "-", "mul": "*", "truediv": "/"}
 
@@ -56,7 +56,6 @@ class Node:
     def __repr__(self):
         return f"<Node {self.julia_type[:80]}>"
 
-
 def _binop(op, swap):
     def f(self, o):
         a, b = (_b.unwrap(o), self._jl) if swap else (self._jl, _b.unwrap(o))
@@ -67,7 +66,6 @@ def _binop(op, swap):
 for _name, _op in _BINARY.items():
     setattr(Node, f"__{_name}__", _binop(_op, False))
     setattr(Node, f"__r{_name}__", _binop(_op, True))
-
 
 class Block:
     """A block of variables or parameters, of one or more dimensions.
@@ -133,7 +131,6 @@ class Block:
                           for a in self._axes)
         return f"<{self._kind} block {dims}>"
 
-
 class TupleNode(Node):
     """The symbolic index for a product index set.
 
@@ -155,7 +152,6 @@ class TupleNode(Node):
     def __len__(self):
         return self._arity
 
-
 class _ProductCursor:
     """What iterating a `Product` yields to a generator expression."""
 
@@ -169,7 +165,6 @@ class _ProductCursor:
 
     def __next__(self):
         raise StopIteration
-
 
 class Product:
     """A rectangular index set: one range per dimension.
@@ -197,7 +192,6 @@ class Product:
     def __repr__(self):
         return f"<product {' x '.join(str(len(a)) for a in self.axes)}>"
 
-
 class Constraint:
     """A block of constraint rows. Pass it back to `add_con` to add terms to it."""
 
@@ -213,7 +207,6 @@ class Constraint:
 
     def __repr__(self):
         return f"<constraint block of {self._n}>"
-
 
 class Expression:
     """A reusable subexpression.
@@ -250,95 +243,92 @@ class Expression:
     def __repr__(self):
         return f"<subexpression {' x '.join(str(len(o)) for o in self._over)}>"
 
+def _field_names(row):
+    """The ordered field names of a row, whatever kind of record it is.
 
-class _RecordCursor:
-    """What iterating a `Records` yields to a generator expression.
-
-    A generator expression evaluates its outermost iterable eagerly and keeps the
-    *iterator*. Handing it one of these means the index set can be recovered as the
-    `Records` itself, rather than as the rows it was built from — so the converted
-    table is reused instead of rebuilt.
+    Python has several ways to spell what Julia writes as a struct or a named
+    tuple, and they are all reasonable things to hold model data in.
     """
+    for attr in ("_fields",):                       # namedtuple, typing.NamedTuple
+        names = getattr(type(row), attr, None)
+        if names:
+            return list(names)
+    if hasattr(type(row), "__dataclass_fields__"):  # dataclasses.dataclass
+        import dataclasses
+        return [f.name for f in dataclasses.fields(row)]
+    if hasattr(type(row), "__attrs_attrs__"):       # attrs
+        return [a.name for a in type(row).__attrs_attrs__]
+    slots = getattr(type(row), "__slots__", None)   # a plain class with __slots__
+    if slots:
+        return [slots] if isinstance(slots, str) else list(slots)
+    return None
 
-    __slots__ = ("records",)
+def _table(rows, index=()):
+    """A sequence of named rows -> the backend's table of named, typed fields.
 
-    def __init__(self, records):
-        self.records = records
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        raise StopIteration
-
-
-class Records:
-    """A table of rows to index a model over, instead of a range.
-
-        Gen = namedtuple("Gen", "i bus cost")
-        gens = Records([Gen(0, 1, 5.0), Gen(1, 2, 6.0)], index=["i", "bus"])
-        core.add_obj(g.cost * pg[g.i]**2 for g in gens)
-
-    Rows are named tuples, mirroring how the backend holds them. Column types are
-    taken from the values: whole numbers stay integers, so a field can be used as a
-    variable index, and anything else becomes a float. `index=` overrides that for a
-    column whose values happen to be whole but which is really data, or vice versa.
-
-    A numpy **structured array** is already exactly this — an array of named,
-    typed fields — and can be passed to `over=` directly, with no wrapper. A pandas
-    frame converts with `df.to_records(index=False)`.
+    Accepts a numpy structured array (which is already exactly that) or anything
+    iterable of named tuples. Column types come from the values: whole numbers stay
+    integers, so a field can be used as a variable index, and anything else becomes
+    a float.
     """
+    import numpy as np
+    if isinstance(rows, np.ndarray) and rows.dtype.names:
+        fields = list(rows.dtype.names)
+        cols = [np.ascontiguousarray(rows[f]) for f in fields]
+        n = len(rows)
+    else:
+        rows = list(rows)
+        if not rows:
+            raise ValueError("an index set needs at least one row")
+        if isinstance(rows[0], dict):
+            raise TypeError(
+                "rows must be named tuples, not dicts -- define one with "
+                "collections.namedtuple so the field names travel with the data")
+        fields = _field_names(rows[0])
+        if fields is None:
+            raise TypeError(
+                f"an index set must be a range, a product, a numpy structured array, "
+                f"or a sequence of rows with named fields -- a named tuple, a "
+                f"dataclass, or anything with __slots__; got "
+                f"{type(rows[0]).__name__}")
+        index, cols, n = set(index), [], len(rows)
+        for name in fields:
+            values = [getattr(r, name) for r in rows]
+            whole = all(isinstance(x, (int, np.integer)) for x in values)
+            cols.append(np.ascontiguousarray(
+                values, dtype=np.int64 if (name in index or (not index and whole))
+                else np.float64))
+    return _b.mkrecords(fields, cols), n
 
-    __slots__ = ("_jl", "_n", "_fields")
+def is_table(over):
+    """Is this a table of named rows?
 
-    def __init__(self, rows, index=()):
-        import numpy as np
-        if isinstance(rows, np.ndarray) and rows.dtype.names:
-            fields = list(rows.dtype.names)
-            cols = [np.ascontiguousarray(rows[f]) for f in fields]
-            n = len(rows)
-        else:
-            rows = list(rows)
-            if not rows:
-                raise ValueError("a Records table needs at least one row")
-            if isinstance(rows[0], dict):
-                raise TypeError(
-                    "rows must be named tuples, not dicts — define one with "
-                    "collections.namedtuple so the field names travel with the data")
-            fields = getattr(type(rows[0]), "_fields", None)
-            if fields is None:
-                raise TypeError(
-                    f"rows must be named tuples or a numpy structured array, "
-                    f"got {type(rows[0]).__name__}")
-            fields, index, cols, n = list(fields), set(index), [], len(rows)
-            for k, name in enumerate(getattr(type(rows[0]), "_fields")):
-                values = [r[k] for r in rows]
-                whole = all(isinstance(x, (int, np.integer)) for x in values)
-                as_int = name in index if index else whole
-                cols.append(np.ascontiguousarray(
-                    values, dtype=np.int64 if as_int else np.float64))
-        self._jl = _b.mkrecords(list(fields), cols)
-        self._n, self._fields = n, tuple(fields)
-
-    def __len__(self):
-        return self._n
-
-    def __iter__(self):
-        return _RecordCursor(self)
-
-    def __repr__(self):
-        return f"<Records {self._n} rows: {', '.join(self._fields)}>"
-
+    A sequence of dicts is refused rather than ignored: it is the obvious thing to
+    reach for, and letting it fall through would fail much further along.
+    """
+    import numpy as np
+    if isinstance(over, np.ndarray):
+        return bool(over.dtype.names)
+    if isinstance(over, (str, bytes, range)):
+        return False
+    try:
+        first = next(iter(over))
+    except (TypeError, StopIteration):
+        return False
+    if isinstance(first, dict):
+        raise TypeError(
+            "an index set of dicts has no field order -- use a named tuple, a "
+            "dataclass, or a numpy structured array, so the field names travel "
+            "with the data")
+    return _field_names(first) is not None
 
 def sum(nodes):
     """A single summation node over `nodes` (the backend's `exa_sum`)."""
     return Node(_b.exa_sum([_b.unwrap(n) for n in nodes]))
 
-
 def prod(nodes):
     """A single product node over `nodes` (the backend's `exa_prod`)."""
     return Node(_b.exa_prod([_b.unwrap(n) for n in nodes]))
-
 
 def Constant(v):
     """A constant whose value is carried in the backend *type*, enabling the

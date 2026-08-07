@@ -7,7 +7,9 @@ import examodels as exa
 
 def test_import_does_not_start_the_backend():
     """`import examodels` must be instant: no runtime boot until a model is built."""
-    import subprocess, sys, textwrap
+    import subprocess
+    import sys
+    import textwrap
     out = subprocess.run(
         [sys.executable, "-c", textwrap.dedent("""
             import time; t = time.perf_counter()

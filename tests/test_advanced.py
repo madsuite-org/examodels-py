@@ -98,7 +98,7 @@ def two_stage(nscen=3, nper=2):
     core = exa.TwoStageCore(nscen)
     d = exa.add_var(core, 1, start=0.0)
     v = exa.add_var(core, exa.EachScenario(), nper, start=0.0)
-    rows = exa.Records([Row(k, target[k]) for k in range(nscen * nper)], index=["i"])
+    rows = [Row(k, target[k]) for k in range(nscen * nper)]
     exa.add_obj(core, lambda r: (v[r.i] - r.t)**2, over=rows)
     exa.add_con(core, exa.EachScenario(), lambda i: v[i] - d[0],
                 over=range(nscen * nper))

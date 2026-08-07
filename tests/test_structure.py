@@ -76,7 +76,6 @@ def test_branching_on_index_is_rejected(xvar):
 
 def test_generator_expression_traces_like_a_lambda(xvar):
     """`expr for i in over` must produce exactly what the lambda form does."""
-    x = xvar
     core = exa.Core()
     y = core.add_var(N)
     got_gen = exa.trace(lambda i: 100 * (y[i-1]**2 - y[i])**2 + (y[i-1] - 1)**2)

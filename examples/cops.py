@@ -30,8 +30,8 @@ def elec(npoints, seed=2713, backend=None, start=None):
     y = add_var(core, npoints, start=start[1])
     z = add_var(core, npoints, start=start[2])
 
-    pairs = exa.Records([Pair(i, j) for i in range(npoints - 1)
-                         for j in range(i + 1, npoints)], index=["i", "j"])
+    pairs = [Pair(i, j) for i in range(npoints - 1)
+                         for j in range(i + 1, npoints)]
     add_obj(core, lambda p: 1.0 / exa.sqrt((x[p.i] - x[p.j])**2
                                            + (y[p.i] - y[p.j])**2
                                            + (z[p.i] - z[p.j])**2), over=pairs)
@@ -145,8 +145,8 @@ def catmix(nh, backend=None):
         add_obj(core, lambda i, j: alpha / h * (u[i+1, j] - u[i, j])**2,
                 over=exa.product(range(nh - 1), range(nc)))
 
-    coll = exa.Records([Coll(i, k, s, rho[k]) for i in range(nh)
-                        for k in range(nc) for s in range(ne)], index=["i", "k", "s"])
+    coll = [Coll(i, k, s, rho[k]) for i in range(nh)
+                        for k in range(nc) for s in range(ne)]
     add_con(core, lambda c: pp[c.i, c.k, c.s] - v[c.i, c.s]
             - h * exa.sum([w[c.i, j, c.s] * (c.rho**(j + 1) / fact[j + 1])
                            for j in range(nc)]), over=coll)
@@ -158,20 +158,19 @@ def catmix(nh, backend=None):
             - h * exa.sum([w[nh - 1, j, s] / fact[j + 1] for j in range(nc)]),
             over=range(ne))
 
-    isr = exa.Records([IS(i, s) for i in range(nh - 1) for s in range(ne)],
-                      index=["i", "s"])
+    isr = [IS(i, s) for i in range(nh - 1) for s in range(ne)]
     add_con(core, lambda r: v[r.i, r.s]
             + exa.sum([w[r.i, j, r.s] * h / fact[j + 1] for j in range(nc)])
             - v[r.i + 1, r.s], over=isr)
 
-    ij = exa.Records([IJ(i, j) for i in range(nh) for j in range(nc)], index=["i", "j"])
+    ij = [IJ(i, j) for i in range(nh) for j in range(nc)]
     add_con(core, lambda r: Dpp[r.i, r.j, 0]
             - u[r.i, r.j] * (10.0 * pp[r.i, r.j, 1] - pp[r.i, r.j, 0]), over=ij)
     add_con(core, lambda r: Dpp[r.i, r.j, 1]
             - u[r.i, r.j] * (pp[r.i, r.j, 0] - 10.0 * pp[r.i, r.j, 1])
             + (1 - u[r.i, r.j]) * pp[r.i, r.j, 1], over=ij)
 
-    sb = exa.Records([SB(i, bc[i]) for i in range(ne)], index=["s"])
+    sb = [SB(i, bc[i]) for i in range(ne)]
     add_con(core, lambda r: v[0, r.s] - r.bc, over=sb)
     return core, dict(u=u, v=v, w=w, pp=pp, Dpp=Dpp, ppf=ppf)
 

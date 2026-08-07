@@ -5,8 +5,17 @@ import types
 import numpy as np
 
 from . import _bridge as _b
-from .node import (Block, Constraint, Expression, Node, Product, Records,
-                   TupleNode, _ProductCursor, _RecordCursor)
+from .node import (
+    Block,
+    Constraint,
+    Expression,
+    Node,
+    Product,
+    TupleNode,
+    _ProductCursor,
+    _table,
+    is_table,
+)
 
 __all__ = ["Core", "trace", "backends", "install_backend"]
 
@@ -36,9 +45,9 @@ def _index_set(over):
             # only for Int and UnitRange.
             return (_b.int_vector(list(over)),), len(over)
         return (over.start, over.stop - 1), len(over)
-    if isinstance(over, np.ndarray) and over.dtype.names:
-        # a structured array is already a table of named, typed fields
-        return (_b.unwrap(Records(over)),), len(over)
+    if is_table(over):
+        jl, n = _table(over)
+        return (jl,), n
     if isinstance(over, Product):
         los = [a.start for a in over.axes]
         his = [a.stop - 1 for a in over.axes]
@@ -74,8 +83,6 @@ def _cell(value):
 
 def _iterable_of(iterator):
     """The thing a generator expression is iterating, without consuming it."""
-    if isinstance(iterator, _RecordCursor):
-        return iterator.records
     if isinstance(iterator, _ProductCursor):
         return iterator.product
     try:                                    # range_iterator, list_iterator, ...
@@ -103,7 +110,7 @@ def _as_function(f, over):
     if sum(i.opname == "FOR_ITER" for i in dis.get_instructions(f.gi_code)) > 1:
         raise TypeError(
             "a generator expression with more than one `for` cannot be traced; "
-            "use a function and `over=` (with a Records index set for several indices)")
+            "use a function and `over=` (with a product or a table for several indices)")
     recovered = _iterable_of(frame.f_locals[".0"])
     body = types.FunctionType(
         f.gi_code, frame.f_globals, "<traced>", (),

@@ -8,15 +8,14 @@ the branch flow equations, thermal limits, angle-difference limits, and power
 balance at every bus.
 """
 import os
-import os
 import sys
 import time
 
+import matpower
 import numpy as np
 
 import examodels as exa
 from examodels import add_con, add_obj, add_var
-import matpower
 
 DEFAULT_CASE = os.environ.get(
     "PGLIB_CASE",
@@ -37,11 +36,11 @@ def ac_opf(data, backend=None):
     p = add_var(core, len(data["arc"]), lvar=-rate, uvar=rate)
     q = add_var(core, len(data["arc"]), lvar=-rate, uvar=rate)
 
-    bus = exa.Records(data["bus"], index=["i"])
-    gen = exa.Records(data["gen"], index=["i", "bus"])
-    arc = exa.Records(data["arc"], index=["i", "bus"])
-    branch = exa.Records(data["branch"], index=["f_idx", "t_idx", "f_bus", "t_bus"])
-    refs = exa.Records(data["ref_buses"], index=["b"])
+    bus = data["bus"]
+    gen = data["gen"]
+    arc = data["arc"]
+    branch = data["branch"]
+    refs = data["ref_buses"]
 
     # generation cost
     add_obj(core, lambda g: g.cost1 * pg[g.i]**2 + g.cost2 * pg[g.i] + g.cost3, over=gen)

@@ -7,7 +7,6 @@ until it is used.
 import numpy as np
 
 from . import _bridge as _b
-from .node import Block, Constraint
 
 __all__ = [
     "as_cupy", "from_cupy",

@@ -1,7 +1,6 @@
 """Dependency hygiene: the coupling to the backend must be explicit and checked."""
 import json
 import pathlib
-import subprocess
 import sys
 
 import examodels

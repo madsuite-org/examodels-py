@@ -47,8 +47,7 @@ def test_symbolic_two_dimensional_indexing():
     """x[t, i] traced over a table of (t, i) rows."""
     T, N = 4, 3
     Cell = namedtuple("Cell", "t i")
-    grid = exa.Records([Cell(t, i) for t in range(1, T) for i in range(N)],
-                       index=["t", "i"])
+    grid = [Cell(t, i) for t in range(1, T) for i in range(N)]
     core = exa.Core()
     x = core.add_var(T, N, start=1.0,
                      lvar=np.full((T, N), -5.0), uvar=np.full((T, N), 5.0))

@@ -18,10 +18,46 @@ Because the function is traced rather than looped, it must not branch on the
 index; anything index-dependent belongs in the data (`start`, `lower`, `upper`,
 or the index set itself).
 """
+from ._bridge import ModelError
+from .advanced import (
+    CompressedNLPModel,
+    EachScenario,
+    FirstStageConstraintTag,
+    FirstStageTag,
+    OracleEvaluator,
+    ScalarNonlinearOracle,
+    SecondStageConstraintTag,
+    SecondStageTag,
+    TimedNLPModel,
+    TwoStageCore,
+    VectorNonlinearOracle,
+    WrapperNLPModel,
+    add_eval,
+    as_cupy,
+    embed_oracle,
+    from_cupy,
+    get_con_scen,
+    get_nscen,
+    get_var_scen,
+    has_matfree_hess,
+    has_matfree_jac,
+    new_tag,
+    timings,
+)
 from .core import Core, backends, install_backend, trace
-from .node import (Block, Constant, Constraint, Expression, Node, Product,
-                   Records, TupleNode)
-from .node import prod, sum
+from .model import Model, Solution
+from .node import (
+    Block,
+    Constant,
+    Constraint,
+    Expression,
+    Node,
+    Product,
+    TupleNode,
+    prod,
+    sum,
+)
+from .solve import available_solvers, install_solver, solve
 
 
 def product(*axes):
@@ -62,23 +98,19 @@ for _n in _RESULT_FUNCTIONS:
 def solution(result, block):
     """`solution(result, x)` — the same as `result[x]`."""
     return result[block]
-from .model import Model, Solution
-from .solve import available_solvers, install_solver, solve
-from ._bridge import ModelError
-from .advanced import (as_cupy, from_cupy, CompressedNLPModel, EachScenario, FirstStageConstraintTag,
-                       OracleEvaluator, ScalarNonlinearOracle, VectorNonlinearOracle,
-                       add_eval, embed_oracle, has_matfree_jac, has_matfree_hess,
-                       FirstStageTag, SecondStageConstraintTag, SecondStageTag,
-                       TimedNLPModel, TwoStageCore, WrapperNLPModel,
-                       get_con_scen, get_nscen, get_var_scen, new_tag, timings)
 
 __version__ = "0.1.0"
 
 __all__ = [
-    "Core", "Model", "Solution", "Block", "Constraint", "Expression", "Records",
-    "Product", "product", "Node", "Constant", "sum", "prod",
+    "Core", "Model", "Solution", "Block", "Constraint", "Expression",
+    "Product", "product", "Node", "TupleNode", "Constant", "sum", "prod",
     "trace", "available_solvers", "install_solver", "solution",
-    *_CORE_FUNCTIONS, *_MODEL_FUNCTIONS, *_RESULT_FUNCTIONS,
+    "add_var", "add_par", "add_obj", "add_con", "add_expr",
+    "get_value", "set_value", "get_start", "set_start",
+    "get_lvar", "set_lvar", "get_uvar", "set_uvar",
+    "get_lcon", "set_lcon", "get_ucon", "set_ucon",
+    "objective", "gradient", "constraints", "violation", "solve",
+    "multipliers", "multipliers_L", "multipliers_U",
     "backends", "install_backend", "ModelError", "__version__",
     "WrapperNLPModel", "TimedNLPModel", "CompressedNLPModel", "timings",
     "as_cupy", "from_cupy",

@@ -20,12 +20,12 @@ core.add_con(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
             over=range(0, N - 2), lcon=0.0, ucon=0.0)
 
 model = exa.Model(core)
-print(problem)
+print(model)
 
-sol = problecore.solve(solver="ipopt")
+sol = model.solve(solver="ipopt")
 print(f"status     : {sol.status}")
 print(f"objective  : {sol.objective:.10f}")
 print(f"iterations : {sol.iterations}")
 print(f"solve time : {sol.elapsed:.3f} s")
 print(f"x          : {sol[x]}")
-print(f"max |c(x)| : {abs(problecore.constraints(sol.x)).max():.2e}")
+print(f"max |c(x)| : {abs(model.constraints(sol.x)).max():.2e}")

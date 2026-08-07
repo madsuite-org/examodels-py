@@ -41,7 +41,25 @@ jobs:
       - name: which backend is under test
         run: python -c "from examodels import _bridge as b; print(b.version, b.seval('pathof(ExaModels)'))"
 
-      - run: pytest -q
+      - run: pytest -q -m "not slow"
+
+  examples:
+    # A broken example shipped once because nothing ran them.
+    name: examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.julia
+            .venv/julia_env
+          key: julia-examples-${{ hashFiles('src/examodels/juliapkg.json') }}
+      - run: pip install -e ".[test]"
+      - run: pytest tests/test_examples.py -q
 
   interface:
     # A fast gate on the thing most likely to break: the backend's exported

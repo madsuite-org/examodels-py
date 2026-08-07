@@ -22,5 +22,30 @@ where = ["src"]
 [tool.setuptools.package-data]
 examodels = ["juliapkg.json"]
 
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+# Pinned explicitly: the default set changes between releases, and CI should not
+# depend on which one the runner happens to install.
+select = ["E", "F", "W", "I", "B", "C4", "UP"]
+ignore = [
+    "E741",   # `l` reads fine as a loop index over lines
+    "C408",   # dict(...) reads better than a brace literal for keyword-shaped data
+]
+
+[tool.ruff.lint.per-file-ignores]
+# These files embed Julia source in long string literals, which cannot be wrapped
+# without making the Julia unreadable.
+"src/examodels/_bridge.py" = ["E501"]
+# The examples and a few tests must extend sys.path before importing a sibling.
+# E402: a sibling import needs sys.path extended first.
+# B023: a lambda in a loop body is traced immediately, before the next iteration
+#       rebinds anything, so late binding cannot bite here.
+# B018: a bare `x[9]` inside pytest.raises is the thing being tested.
+"tests/*" = ["E402", "B023", "B018"]
+"examples/*" = ["E402", "B023"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

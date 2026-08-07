@@ -136,7 +136,7 @@ def _boot():
         # back out as a Python `range` and returns as a StepRange, which several of
         # the backend's size and dispatch paths reject (get_lcon/get_ucon among
         # them). So the range is built inside each call that consumes it. Vectors
-        # -- what `Records` produces -- do not convert, and pass through fine.
+        # -- what a table of rows becomes -- do not convert, and pass through fine.
         gen_range=jl.seval("(node, a, b) -> Base.Generator(_ -> node, UnitRange(a, b))"),
         gen_iter=jl.seval("(node, itr) -> Base.Generator(_ -> node, itr)"),
         # A product index set: several ranges, again built here rather than handed

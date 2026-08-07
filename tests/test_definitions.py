@@ -112,7 +112,7 @@ def test_several_objective_terms_are_summed():
 def test_objective_over_a_table_and_over_a_product():
     core = exa.Core()
     x = core.add_var(3, start=1.0)
-    rows = exa.Records([Row(k, float(k)) for k in range(3)], index=["i"])
+    rows = [Row(k, float(k)) for k in range(3)]
     core.add_obj(r.c * x[r.i] for r in rows)
     y = core.add_var(2, 2, start=1.0)
     core.add_obj(y[a, b] for a, b in exa.product(range(2), range(2)))
@@ -141,7 +141,7 @@ def test_add_con_over_range_table_and_product():
     core = exa.Core()
     x = core.add_var(4, start=1.0)
     y = core.add_var(2, 3, start=1.0)
-    rows = exa.Records([Row(k, 1.0) for k in range(3)], index=["i"])
+    rows = [Row(k, 1.0) for k in range(3)]
     a = core.add_con(x[i] - x[i + 1] for i in range(3))
     b = core.add_con(r.c * x[r.i] for r in rows)
     c = core.add_con(y[t, i] - y[t - 1, i] for t, i in exa.product(range(1, 2), range(3)))
@@ -166,7 +166,7 @@ def test_augmenting_the_same_block_several_times():
     core = exa.Core()
     x = core.add_var(3, start=1.0)
     y = core.add_var(3, start=1.0)
-    rows = exa.Records([Row(k, 1.0) for k in range(3)], index=["i"])
+    rows = [Row(k, 1.0) for k in range(3)]
     con = core.add_con(r.c + x[r.i] for r in rows)
     core.add_con(con, ((r.i, y[r.i]) for r in rows))
     core.add_con(con, ((r.i, -x[r.i]) for r in rows))          # cancels the x term
@@ -197,7 +197,7 @@ def test_add_expr_is_inlined_and_reusable():
     y = core.add_var(5, start=0.5)
     sq = core.add_expr(y[i]**2 for i in range(5))
     core.add_obj((sq[i] - 1.0)**2 for i in range(5))
-    con = core.add_con((sq[i] + sq[i + 1] for i in range(4)), lcon=0.0, ucon=10.0)
+    core.add_con((sq[i] + sq[i + 1] for i in range(4)), lcon=0.0, ucon=10.0)
     model = exa.Model(core)
     assert model.nvar == 5, "a subexpression must not add variables"
     assert model.ncon == 4
@@ -280,7 +280,7 @@ def test_a_numpy_structured_array_is_an_index_set_on_its_own():
 def test_column_types_are_inferred_from_the_values():
     """Whole numbers stay integers, so a field can be used as an index."""
     R = namedtuple("R", "i c")
-    rows = exa.Records([R(0, 1.0), R(1, 2.0), R(2, 3.0)])       # no index= given
+    rows = [R(0, 1.0), R(1, 2.0), R(2, 3.0)]       # no index= given
     core = exa.Core()
     x = core.add_var(3, start=1.0)
     core.add_obj(lambda g: g.c * x[g.i]**2, over=rows)
@@ -291,7 +291,7 @@ def test_structured_array_and_named_tuples_build_the_same_model():
     R = namedtuple("R", "i c")
     arr = np.array([(0, 1.0), (1, 2.0), (2, 3.0)], dtype=[("i", "i8"), ("c", "f8")])
     models = []
-    for table in (arr, exa.Records([R(0, 1.0), R(1, 2.0), R(2, 3.0)])):
+    for table in (arr, [R(0, 1.0), R(1, 2.0), R(2, 3.0)]):
         core = exa.Core()
         x = core.add_var(3, start=1.0)
         core.add_obj(lambda g: g.c * x[g.i]**2, over=table)
@@ -303,7 +303,7 @@ def test_structured_array_and_named_tuples_build_the_same_model():
 def test_index_overrides_the_inferred_type():
     """A whole-numbered column that is really data can be forced to a float."""
     R = namedtuple("R", "i c")
-    rows = exa.Records([R(0, 2), R(1, 3)], index=["i"])   # c is whole, wanted as data
+    rows = [R(0, 2), R(1, 3)]   # c is whole, wanted as data
     core = exa.Core()
     x = core.add_var(2, start=1.0)
     core.add_obj(lambda g: g.c * x[g.i]**2, over=rows)

@@ -42,7 +42,8 @@ def read(filename):
     for k, r in enumerate(buses):
         bus.append(Bus(i=k, pd=r[2] / base, qd=r[3] / base,
                        gs=r[4] / base, bs=r[5] / base))
-        vmax.append(r[11]); vmin.append(r[12])
+        vmax.append(r[11])
+        vmin.append(r[12])
         if int(r[1]) == 3:
             ref_buses.append(Ref(b=k))
 
@@ -60,8 +61,10 @@ def read(filename):
         gen.append(Gen(i=g, bus=busidx[int(r[0])],
                        cost1=c2 * base**2,                        # per-unit rescale
                        cost2=c1 * base, cost3=c0))
-        pmax.append(r[8] / base); pmin.append(r[9] / base)
-        qmax.append(r[3] / base); qmin.append(r[4] / base)
+        pmax.append(r[8] / base)
+        pmin.append(r[9] / base)
+        qmax.append(r[3] / base)
+        qmin.append(r[4] / base)
         g += 1
 
     branches = [r for r in mats["branch"] if int(r[10]) != 0]
@@ -88,7 +91,8 @@ def read(filename):
             c5=(gg + g_fr) / ttm,              c6=(bshunt + b_fr) / ttm,
             c7=gg + g_to,                      c8=bshunt + b_to,
             rate_a_sq=rate ** 2))
-        angmin.append(math.radians(r[11])); angmax.append(math.radians(r[12]))
+        angmin.append(math.radians(r[11]))
+        angmax.append(math.radians(r[12]))
 
     for l, r in enumerate(branches):                              # arcs: from, then to
         arc.append(Arc(i=l, bus=busidx[int(r[0])], rate_a=branch[l].rate_a_sq ** 0.5))

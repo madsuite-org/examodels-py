@@ -52,14 +52,16 @@ SURFACE = {
                  "get_lcon", "set_lcon!", "get_ucon", "set_ucon!")},
     "set_parameter!": (SUPPORTED, "Model.set_value"),
     # -- macros: Python spells these as generator expressions ---------------
-    **{m: (SYNTAX, "generator expression or lambda + over=")
-       for m in ("@add_var", "@add_par", "@add_obj", "@add_con", "@add_con!", "@add_expr")},
+    **dict.fromkeys(
+        ("@add_var", "@add_par", "@add_obj", "@add_con", "@add_con!", "@add_expr"),
+        (SYNTAX, "generator expression or lambda + over=")),
     # -- needs Julia ---------------------------------------------------------
     "@register_univariate": (JULIA, "registering an operator needs a Julia function"),
     "@register_bivariate": (JULIA, "registering an operator needs a Julia function"),
     # -- the backend's own deprecated API ------------------------------------
-    **{n: (LEGACY, "deprecated in the backend (deprecated.jl)")
-       for n in ("LegacyExaCore", "variable", "parameter", "constraint!", "subexpr")},
+    **dict.fromkeys(
+        ("LegacyExaCore", "variable", "parameter", "constraint!", "subexpr"),
+        (LEGACY, "deprecated in the backend (deprecated.jl)")),
     "ExaModels": (INTERNAL, "the module itself"),
     # -- nonlinear oracles ---------------------------------------------------
     "VectorNonlinearOracle": (SUPPORTED, "exa.VectorNonlinearOracle"),
@@ -131,7 +133,7 @@ def test_coverage_summary(capsys):
 def test_every_supported_export_works():
     """One model that exercises every SUPPORTED name end to end."""
     Row = namedtuple("Row", "i c")
-    rows = exa.Records([Row(k, 1.0 + k) for k in range(3)], index=["i"])
+    rows = [Row(k, 1.0 + k) for k in range(3)]
 
     core = exa.Core()                                     # ExaCore
     th = core.add_par([2.0, 3.0])                         # add_par
@@ -144,7 +146,7 @@ def test_every_supported_export_works():
     core.add_obj(exa.prod([x[0], x[1]]) * exa.Constant(1), over=range(1))   # exa_prod, Constant
     con = core.add_con((x[i] + x[i + 1] for i in range(2)),
                        lcon=0.5, ucon=1.5)                # add_con
-    two = exa.Records([Row(k, 1.0) for k in range(2)], index=["i"])
+    two = [Row(k, 1.0) for k in range(2)]
     core.add_con(con, ((r.i, th[1] * x[r.i]) for r in two))                # add_con!
     core.add_con(y[t, i] - y[t - 1, i]
                  for t, i in exa.product(range(1, 2), range(3)))            # product

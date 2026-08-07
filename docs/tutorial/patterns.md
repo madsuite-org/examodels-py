@@ -20,7 +20,7 @@ For anything data-driven, rows are named tuples:
 from collections import namedtuple
 
 Gen = namedtuple("Gen", "i bus cost1 cost2 cost3")
-gen = exa.Records([Gen(0, 3, 1100.0, 500.0, 0.0), ...], index=["i", "bus"])
+gen = [Gen(0, 3, 1100.0, 500.0, 0.0), ...]
 
 exa.add_obj(core, lambda g: g.cost1 * pg[g.i]**2 + g.cost2 * pg[g.i] + g.cost3, over=gen)
 ```
