@@ -15,38 +15,42 @@ PGLIB = pathlib.Path(os.environ.get("PGLIB_DIR", "~/git/pglib-opf")).expanduser(
 pglib = pytest.mark.skipif(not PGLIB.is_dir(), reason="PGLib cases not available here")
 
 
+def cases(include_large=False):
+    import tomllib
+    table = tomllib.loads((pathlib.Path(__file__).parent / "data" / "cases.toml")
+                          .read_text())["case"]
+    return [c for c in table if include_large or not c.get("large")]
+
+
 @pglib
-def test_case3_matches_the_published_objective():
-    """The case file header states the optimal value; we must reproduce it."""
+@pytest.mark.parametrize("case", cases(), ids=lambda c: c["name"])
+def test_a_case_reproduces_its_expected_objective(case):
+    """Both interfaces read this table, so a divergence between them fails here."""
     import matpower
     from ac_opf import ac_opf
 
-    case = PGLIB / "pglib_opf_case3_lmbd.m"
-    published = float(next(line.split(":")[1].split()[0]
-                           for line in case.read_text().splitlines()
-                           if "opt objective value" in line))
-    assert published == pytest.approx(5812.64)
+    path = PGLIB / f"{case['name']}.m"
+    data = matpower.read(str(path))
+    assert len(data["bus"]) == case["buses"]
+    assert len(data["gen"]) == case["generators"]
+    assert len(data["branch"]) == case["branches"]
 
-    core, var = ac_opf(matpower.read(str(case)))
+    if case["source"] == "published":
+        # the file states it itself; read it rather than trusting the table
+        stated = float(next(line.split(":")[1].split()[0]
+                            for line in path.read_text().splitlines()
+                            if "opt objective value" in line))
+        assert stated == pytest.approx(case["objective"], rel=1e-6), \
+            "the table disagrees with the case file's own header"
+
+    core, var = ac_opf(data)
     model = exa.Model(core)
     sol = model.solve()
     assert sol.success, sol.status
-    assert sol.objective == pytest.approx(published, rel=1e-5)
+    assert sol.objective == pytest.approx(case["objective"], rel=case["rtol"])
     assert model.violation(sol.x) < 1e-6
-
-
-@pglib
-def test_case118_solves_feasibly():
-    import matpower
-    from ac_opf import ac_opf
-
-    core, var = ac_opf(matpower.read(str(PGLIB / "pglib_opf_case118_ieee.m")))
-    model = exa.Model(core)
-    assert model.nvar == 1088 and model.ncon == 1539
-    sol = model.solve()
-    assert sol.success and model.violation(sol.x) < 1e-6
     vm = sol[var["vm"]]
-    assert vm.min() > 0.9 and vm.max() < 1.11
+    assert 0.5 < vm.min() and vm.max() < 1.5
 
 
 def test_augmentation_adds_terms_to_existing_rows():

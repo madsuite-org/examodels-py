@@ -265,3 +265,46 @@ def test_stepped_range_is_not_a_valid_dimension():
     core = exa.Core()
     with pytest.raises(TypeError, match="cannot have a step"):
         core.add_var(range(1, 9, 2))
+
+
+# ------------------------------------------------- table index sets ----------
+def test_a_numpy_structured_array_is_an_index_set_on_its_own():
+    """No wrapper needed: a structured array is already named, typed fields."""
+    gen = np.array([(0, 1.0), (1, 2.0), (2, 3.0)], dtype=[("i", "i8"), ("c", "f8")])
+    core = exa.Core()
+    x = core.add_var(3, start=1.0)
+    core.add_obj(lambda g: g.c * x[g.i]**2, over=gen)
+    assert exa.Model(core).objective(np.ones(3)) == pytest.approx(6.0)
+
+
+def test_column_types_are_inferred_from_the_values():
+    """Whole numbers stay integers, so a field can be used as an index."""
+    R = namedtuple("R", "i c")
+    rows = exa.Records([R(0, 1.0), R(1, 2.0), R(2, 3.0)])       # no index= given
+    core = exa.Core()
+    x = core.add_var(3, start=1.0)
+    core.add_obj(lambda g: g.c * x[g.i]**2, over=rows)
+    assert exa.Model(core).objective(np.ones(3)) == pytest.approx(6.0)
+
+
+def test_structured_array_and_named_tuples_build_the_same_model():
+    R = namedtuple("R", "i c")
+    arr = np.array([(0, 1.0), (1, 2.0), (2, 3.0)], dtype=[("i", "i8"), ("c", "f8")])
+    models = []
+    for table in (arr, exa.Records([R(0, 1.0), R(1, 2.0), R(2, 3.0)])):
+        core = exa.Core()
+        x = core.add_var(3, start=1.0)
+        core.add_obj(lambda g: g.c * x[g.i]**2, over=table)
+        m = exa.Model(core)
+        models.append((m.nvar, m.ncon, m.nnzh, m.objective(np.ones(3))))
+    assert models[0] == models[1]
+
+
+def test_index_overrides_the_inferred_type():
+    """A whole-numbered column that is really data can be forced to a float."""
+    R = namedtuple("R", "i c")
+    rows = exa.Records([R(0, 2), R(1, 3)], index=["i"])   # c is whole, wanted as data
+    core = exa.Core()
+    x = core.add_var(2, start=1.0)
+    core.add_obj(lambda g: g.c * x[g.i]**2, over=rows)
+    assert exa.Model(core).objective(np.ones(2)) == pytest.approx(5.0)

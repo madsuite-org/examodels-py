@@ -279,33 +279,46 @@ class Records:
         gens = Records([Gen(0, 1, 5.0), Gen(1, 2, 6.0)], index=["i", "bus"])
         core.add_obj(g.cost * pg[g.i]**2 for g in gens)
 
-    Rows are named tuples, mirroring how the backend holds them. Fields named in
-    `index` hold positions of variables and are kept as integers; everything else
-    becomes a float.
+    Rows are named tuples, mirroring how the backend holds them. Column types are
+    taken from the values: whole numbers stay integers, so a field can be used as a
+    variable index, and anything else becomes a float. `index=` overrides that for a
+    column whose values happen to be whole but which is really data, or vice versa.
+
+    A numpy **structured array** is already exactly this — an array of named,
+    typed fields — and can be passed to `over=` directly, with no wrapper. A pandas
+    frame converts with `df.to_records(index=False)`.
     """
 
     __slots__ = ("_jl", "_n", "_fields")
 
     def __init__(self, rows, index=()):
         import numpy as np
-        rows = list(rows)
-        if not rows:
-            raise ValueError("a Records table needs at least one row")
-        if isinstance(rows[0], dict):
-            raise TypeError(
-                "rows must be named tuples, not dicts — define one with "
-                "collections.namedtuple so the field names travel with the data")
-        fields = getattr(type(rows[0]), "_fields", None)
-        if fields is None:
-            raise TypeError(f"rows must be named tuples, got {type(rows[0]).__name__}")
-        index = set(index)
-        cols = []
-        for k, name in enumerate(fields):
-            values = [r[k] for r in rows]
-            cols.append(np.ascontiguousarray(values, dtype=np.int64) if name in index
-                        else np.ascontiguousarray(values, dtype=np.float64))
+        if isinstance(rows, np.ndarray) and rows.dtype.names:
+            fields = list(rows.dtype.names)
+            cols = [np.ascontiguousarray(rows[f]) for f in fields]
+            n = len(rows)
+        else:
+            rows = list(rows)
+            if not rows:
+                raise ValueError("a Records table needs at least one row")
+            if isinstance(rows[0], dict):
+                raise TypeError(
+                    "rows must be named tuples, not dicts — define one with "
+                    "collections.namedtuple so the field names travel with the data")
+            fields = getattr(type(rows[0]), "_fields", None)
+            if fields is None:
+                raise TypeError(
+                    f"rows must be named tuples or a numpy structured array, "
+                    f"got {type(rows[0]).__name__}")
+            fields, index, cols, n = list(fields), set(index), [], len(rows)
+            for k, name in enumerate(getattr(type(rows[0]), "_fields")):
+                values = [r[k] for r in rows]
+                whole = all(isinstance(x, (int, np.integer)) for x in values)
+                as_int = name in index if index else whole
+                cols.append(np.ascontiguousarray(
+                    values, dtype=np.int64 if as_int else np.float64))
         self._jl = _b.mkrecords(list(fields), cols)
-        self._n, self._fields = len(rows), tuple(fields)
+        self._n, self._fields = n, tuple(fields)
 
     def __len__(self):
         return self._n

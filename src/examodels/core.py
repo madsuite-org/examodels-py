@@ -36,6 +36,9 @@ def _index_set(over):
             # only for Int and UnitRange.
             return (_b.int_vector(list(over)),), len(over)
         return (over.start, over.stop - 1), len(over)
+    if isinstance(over, np.ndarray) and over.dtype.names:
+        # a structured array is already a table of named, typed fields
+        return (_b.unwrap(Records(over)),), len(over)
     if isinstance(over, Product):
         los = [a.start for a in over.axes]
         his = [a.stop - 1 for a in over.axes]
@@ -182,9 +185,11 @@ class Core:
     #: set by TwoStageCore; a plain core has none
     nscen = 0
 
-    def __init__(self, backend=None):
+    def __init__(self, backend=None, minimize=True):
         resolved = _backend(backend)
         kw = {"backend": resolved} if resolved is not None else {}
+        if not minimize:
+            kw["minimize"] = False
         self._core = _b.guard(_b.EM.ExaCore, concrete=_b.valtrue, **kw)
         self._named = {}
 
