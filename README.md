@@ -48,8 +48,8 @@ index set.
 
 Two consequences worth knowing:
 
-- **Expressions must not branch on the index.** `lambda i: x[i] if i > 3 else x[i-1]` raises
-  a `TypeError`, because at trace time `i` has no value. Anything index-dependent belongs in
+- **Expressions must not branch on the index.** `x[i] if i > 3 else x[i-1]` raises a
+  `TypeError`, because at trace time `i` has no value. Anything index-dependent belongs in
   the data — `start`, `lower`, `upper`, or the index set itself, all of which are evaluated
   per index in the ordinary way.
 - **Only registered operators may appear.** Use `exa.sin`, not `math.sin`. The available

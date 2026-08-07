@@ -2,6 +2,8 @@
 import numpy as np
 import pytest
 
+from collections import namedtuple
+
 import examodels as exa
 from examodels.testing import full_types, reference_trace, same_structure
 
@@ -63,7 +65,8 @@ def test_the_generator_is_not_consumed_or_materialised():
 def test_records_index_set_survives_the_generator():
     core = exa.Core()
     x = core.add_var(3, start=1.0)
-    rows = exa.Records({"i": [0, 1, 2], "c": [2.0, 2.0, 2.0]}, index=["i"])
+    Row = namedtuple("Row", "i c")
+    rows = exa.Records([Row(k, 2.0) for k in range(3)], index=["i"])
     core.add_obj(r.c * x[r.i]**2 for r in rows)
     assert exa.Model(core).objective(np.ones(3)) == pytest.approx(6.0)
 
@@ -72,7 +75,8 @@ def test_augmentation_accepts_a_generator():
     core = exa.Core()
     x = core.add_var(3, start=1.0)
     y = core.add_var(3, start=1.0)
-    rows = exa.Records({"i": [0, 1, 2], "c": [1.0, 1.0, 1.0]}, index=["i"])
+    Row = namedtuple("Row", "i c")
+    rows = exa.Records([Row(k, 1.0) for k in range(3)], index=["i"])
     con = core.add_con(r.c + x[r.i] for r in rows)
     core.add_con(con, ((r.i, y[r.i]) for r in rows))
     model = exa.Model(core)
