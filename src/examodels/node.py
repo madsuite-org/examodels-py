@@ -1,96 +1,129 @@
-"""Python handles for ExaModels' Julia expression nodes.
+"""Python handles for the backend's expression nodes.
 
-A `Node` owns no structure of its own: every operator forwards straight into
-Julia, so the expression tree is built by ExaModels itself and the algebraic
-rewrites in `specialization.jl` fire during tracing.
+A handle owns no structure of its own: operators forward straight into the
+backend, so the expression tree is built there and its algebraic simplifications
+apply during tracing.
 """
 import numpy as _np
 
 from . import _bridge as _b
 
-__all__ = ["Node", "Variable", "Constant"]
+__all__ = ["Node", "Block", "Expression", "Constant"]
+
+_BINARY = {"add": "+", "sub": "-", "mul": "*", "truediv": "/"}
 
 
 class Node:
-    """Handle to an `ExaModels.AbstractNode`. Operators dispatch into Julia."""
+    """Handle to a backend expression node."""
 
     __slots__ = ("_jl",)
 
     def __init__(self, jlobj):
         self._jl = jlobj
 
-    def __add__(self, o):      return Node(_b.ops["+"](self._jl, _b.unwrap(o)))
-    def __radd__(self, o):     return Node(_b.ops["+"](_b.unwrap(o), self._jl))
-    def __sub__(self, o):      return Node(_b.ops["-"](self._jl, _b.unwrap(o)))
-    def __rsub__(self, o):     return Node(_b.ops["-"](_b.unwrap(o), self._jl))
-    def __mul__(self, o):      return Node(_b.ops["*"](self._jl, _b.unwrap(o)))
-    def __rmul__(self, o):     return Node(_b.ops["*"](_b.unwrap(o), self._jl))
-    def __truediv__(self, o):  return Node(_b.ops["/"](self._jl, _b.unwrap(o)))
-    def __rtruediv__(self, o): return Node(_b.ops["/"](_b.unwrap(o), self._jl))
-    def __neg__(self):         return Node(_b.ops["-"](self._jl))
-    def __pos__(self):         return self
-
     def __pow__(self, o):
-        if type(o) is int:      # mirror Julia's literal-exponent lowering
+        # Julia lowers `x^2` with a LITERAL exponent to `literal_pow(^, x, Val(2))`,
+        # which is what puts the exponent in the type and enables `^2 -> abs2`.
+        # Python's `**` would otherwise pass a runtime integer and lose that.
+        if type(o) is int:
             return Node(_b.literal_pow(self._jl, o))
         return Node(_b.ops["^"](self._jl, _b.unwrap(o)))
 
-    def __rpow__(self, o):     return Node(_b.ops["^"](_b.unwrap(o), self._jl))
-    def __getitem__(self, i):  return Node(_b.getidx(self._jl, _b.unwrap(i)))
+    def __rpow__(self, o):    return Node(_b.ops["^"](_b.unwrap(o), self._jl))
+    def __neg__(self):        return Node(_b.ops["-"](self._jl))
+    def __pos__(self):        return self
+    def __getitem__(self, i): return Node(_b.getidx(self._jl, _b.unwrap(i)))
 
     def __bool__(self):
         raise TypeError(
-            "an ExaModels expression has no truth value: the function is traced ONCE "
-            "with a symbolic index, so `if i ...` cannot be evaluated at trace time. "
-            "Branch in the data (start / lcon / ucon / the index set) instead."
+            "an expression has no truth value: the function is traced ONCE with a "
+            "symbolic index, so `if i ...` cannot be evaluated at trace time. Branch "
+            "in the data (start / lower / upper / the index set) instead."
         )
 
     @property
     def julia_type(self):
-        """Full parametric Julia type — the structural fingerprint of the expression."""
+        """Full parametric backend type — the structural fingerprint of the expression."""
         return str(_b.typestr(self._jl))
 
     def __repr__(self):
         return f"<Node {self.julia_type[:80]}>"
 
 
-class Variable:
-    """Handle to an `ExaModels.Variable`; `x[i]` builds a Julia `Var` node."""
+def _binop(op, swap):
+    def f(self, o):
+        a, b = (_b.unwrap(o), self._jl) if swap else (self._jl, _b.unwrap(o))
+        return Node(_b.ops[op](a, b))
+    return f
 
-    __slots__ = ("_jl", "_n")
 
-    def __init__(self, jlobj, n=None):
-        self._jl, self._n = jlobj, n
+for _name, _op in _BINARY.items():
+    setattr(Node, f"__{_name}__", _binop(_op, False))
+    setattr(Node, f"__r{_name}__", _binop(_op, True))
+
+
+class Block:
+    """A block of variables or parameters. Index it to reference one element."""
+
+    __slots__ = ("_jl", "_n", "_kind")
+
+    def __init__(self, jlobj, n, kind="variable"):
+        self._jl, self._n, self._kind = jlobj, n, kind
 
     def __getitem__(self, i):
-        # This package is 0-based. The backend is 1-based, and the +1 is applied in
-        # exactly one place per index kind: here for a concrete integer, and on the
-        # index set for a symbolic one (see core._index_set). Doing it here for
-        # symbolic indices too would add a redundant node to every expression.
+        # This package is 0-based, the backend is 1-based. A concrete index is
+        # shifted here; a symbolic one is shifted once on the index set instead
+        # (see core._index_set), which keeps the traced expression identical to
+        # the one the backend builds for itself.
         if isinstance(i, (int, _np.integer)):
             i = int(i)
-            if self._n is not None:
-                if not -self._n <= i < self._n:
-                    raise IndexError(
-                        f"index {i} is out of range for a block of {self._n} variables")
-                i %= self._n                      # allow the usual negative indexing
-            return Node(_b.getidx(self._jl, i + 1))
+            if not -self._n <= i < self._n:
+                raise IndexError(f"index {i} is out of range for {self!r}")
+            return Node(_b.getidx(self._jl, i % self._n + 1))
         return Node(_b.getidx(self._jl, _b.unwrap(i)))
 
     def __len__(self):
-        if self._n is None:
-            raise TypeError("length unknown for this variable block")
         return self._n
 
-    @property
-    def julia_type(self):
-        return str(_b.typestr(self._jl))
+    def __repr__(self):
+        return f"<{self._kind} block of {self._n}>"
+
+
+class Expression:
+    """A reusable subexpression.
+
+    Subexpressions are inlined at each use — no auxiliary variable, no equality
+    constraint — so this is held entirely on the Python side: `s[i]` just applies
+    the function again. Uses sharing a structure share derivative code, exactly as
+    if the backend had built them.
+    """
+
+    __slots__ = ("_f", "_over")
+
+    def __init__(self, f, over):
+        self._f = f
+        self._over = over if isinstance(over, tuple) else (over,)
+
+    def __getitem__(self, idx):
+        idx = idx if isinstance(idx, tuple) else (idx,)
+        if len(idx) != len(self._over):
+            raise IndexError(f"{self!r} is indexed by {len(self._over)}, got {len(idx)}")
+        for i, over in zip(idx, self._over):
+            if isinstance(i, (int, _np.integer)) and i not in over:
+                raise IndexError(f"index {i} is outside {over}")
+        return self._f(*idx)
+
+    def __len__(self):
+        n = 1
+        for o in self._over:
+            n *= len(o)
+        return n
 
     def __repr__(self):
-        return f"<Variable n={self._n}>"
+        return f"<subexpression {' x '.join(str(len(o)) for o in self._over)}>"
 
 
 def Constant(v):
-    """`ExaModels.Constant{T}` — the value is carried as a Julia *type* parameter,
-    which is what enables the rewrites in `specialization.jl` (`x*Constant(1) -> x`)."""
+    """A constant whose value is carried in the backend *type*, enabling the
+    algebraic simplifications (`x * Constant(1) -> x`)."""
     return Node(_b.EM.Constant(v))

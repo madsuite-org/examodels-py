@@ -10,8 +10,8 @@ N = 10
 @pytest.fixture(scope="module")
 def xvar():
     full_types(True)
-    m = exa.Model()
-    return m.add_variables(N)
+    core = exa.Core()
+    return core.add_variables(N)
 
 
 def test_luksan_vlcek_objective(xvar):

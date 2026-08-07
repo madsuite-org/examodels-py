@@ -20,12 +20,15 @@ def same_structure(a, b):
     return bool(_b.same_ty(_b.unwrap(a), _b.unwrap(b)))
 
 
-def reference_trace(var, generator_src):
+def reference_trace(var, generator_src, **extra):
     """Trace a *Julia* generator the way ExaModels does, as a reference oracle.
 
     This is the one thing the user-facing API deliberately cannot express, and the
     only reason the test suite needs it: it produces the ground truth that a
     Python-built expression is compared against.
     """
-    f = _b.seval(f"x -> begin gen = ({generator_src}); gen.f(ExaModels.DataSource()) end")
-    return Node(f(_b.unwrap(var)))
+    names = ["x", *extra]
+    f = _b.seval(
+        f"({', '.join(names)}) -> begin gen = ({generator_src}); "
+        f"gen.f(ExaModels.DataSource()) end")
+    return Node(f(_b.unwrap(var), *(_b.unwrap(v) for v in extra.values())))

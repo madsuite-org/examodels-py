@@ -2,10 +2,12 @@
 
     import examodels as exa
 
-    m = exa.Model()
-    x = m.add_variables(N, start=[-1.2 if i % 2 else 1.0 for i in range(N)])
-    m.minimize(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2, over=range(2, N+1))
-    sol = m.solve()
+    core = exa.Core()
+    x = core.add_variables(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
+    core.minimize(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2, over=range(1, N))
+
+    model = exa.Model(core)
+    sol = model.solve()
     print(sol.objective, sol[x])
 
 Expressions are written as ordinary Python functions of an index. Each one is
@@ -16,21 +18,22 @@ Because the function is traced rather than looped, it must not branch on the
 index; anything index-dependent belongs in the data (`start`, `lower`, `upper`,
 or the index set itself).
 """
-from .core import Model, trace
-from .node import Constant, Node, Variable
-from .problem import Problem, Solution
+from .core import Core, backends, install_backend, trace
+from .node import Block, Constant, Expression, Node
+from .model import Model, Solution
 from .solve import available_solvers, install_solver, solve
 from ._bridge import ModelError
 
 __version__ = "0.1.0"
 
 __all__ = [
-    "Model", "Problem", "Solution", "Variable", "Node", "Constant",
-    "trace", "solve", "available_solvers", "install_solver", "ModelError", "__version__",
+    "Core", "Model", "Solution", "Block", "Expression", "Node", "Constant",
+    "trace", "solve", "available_solvers", "install_solver",
+    "backends", "install_backend", "ModelError", "__version__",
 ]
 
 
-_SUBMODULES = frozenset({"ops", "core", "node", "problem", "solve", "testing", "_bridge"})
+_SUBMODULES = frozenset({"ops", "core", "node", "model", "solve", "testing", "_bridge"})
 
 
 def __getattr__(name):

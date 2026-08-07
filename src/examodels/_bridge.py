@@ -4,10 +4,52 @@ Importing this module does NOT start Julia; the runtime boots on first use, so
 `import examodels` stays instant and users never see a startup stall they cannot
 explain. Nothing outside this module imports juliacall.
 """
-import sys
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 _S = None
+
+#: Backend symbols this package calls. Several are NOT exported by the backend
+#: (`_UNIVARIATES`, `_BIVARIATES`, `fulltype_display!`) or are low-level entry
+#: points, so the coupling is listed here rather than left implicit, and checked
+#: once at startup. A backend upgrade that removes one fails immediately, with a
+#: message naming the symbol, instead of at a user's first model build.
+REQUIRED = (
+    "ExaCore", "ExaModel", "add_var", "add_par", "add_obj", "add_con",
+    "DataSource", "Constant", "obj", "solution", "get_value", "set_value!",
+    "_UNIVARIATES", "_BIVARIATES", "fulltype_display!",
+)
+
+
+def _compat():
+    """The backend version range this package declares — read from the one place
+    it is written down, so the runtime check and the installer cannot disagree."""
+    spec = json.loads((Path(__file__).parent / "juliapkg.json").read_text())
+    return spec["packages"]["ExaModels"]["version"]
+
+
+def _satisfies(version, bound):
+    """Julia's caret semantics: the leading non-zero component must match."""
+    want = tuple(int(p) for p in bound.split("."))
+    lead = next((i for i, v in enumerate(want) if v), len(want) - 1)
+    return version[: lead + 1] == want[: lead + 1] and version >= want
+
+
+def _check(jl):
+    missing = [n for n in REQUIRED if not bool(jl.seval(f"isdefined(ExaModels, :var\"{n}\")"))]
+    version = str(jl.seval("string(pkgversion(ExaModels))"))
+    want = _compat()
+    got = tuple(int(p) for p in version.split("-")[0].split("."))
+    ok = any(_satisfies(got, bound.strip()) for bound in want.split(","))
+    if missing or not ok:
+        raise RuntimeError(
+            f"the ExaModels backend in this environment (version {version}) is not the "
+            f"one this package supports (declared: {want})"
+            + (f"; missing: {', '.join(missing)}" if missing else "")
+            + ". Reinstall the backend, or upgrade `examodels`."
+        )
+    return version
 
 
 def _boot():
@@ -16,8 +58,10 @@ def _boot():
         return _S
     from juliacall import Main as jl
     jl.seval("using ExaModels, NLPModels")
+    version = _check(jl)
     _S = SimpleNamespace(
         jl=jl,
+        version=version,
         EM=jl.ExaModels,
         seval=jl.seval,
         ops={op: jl.seval(op) for op in ("+", "-", "*", "/", "^")},
@@ -69,6 +113,12 @@ def translate(exc):
             f"unsupported operation in an expression: {head}. Only the operators "
             f"registered with ExaModels can appear in a traced function."
         )
+    # Map the backend's error kinds onto Python's, once, rather than re-validating
+    # every argument on the way in.
+    for marker, cls in (("DimensionMismatch", ValueError), ("BoundsError", IndexError),
+                        ("ArgumentError", ValueError)):
+        if head.startswith(marker):
+            return cls(head[len(marker):].lstrip(": "))
     return ModelError(head)
 
 

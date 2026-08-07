@@ -7,20 +7,24 @@ algebraic modeling and automatic differentiation for nonlinear programs, on CPU 
 import examodels as exa
 
 N = 10
-m = exa.Model()
-x = m.add_variables(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
+core = exa.Core()
+x = core.add_variables(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
 
-m.minimize(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
-           over=range(1, N))
+core.minimize(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
+              over=range(1, N))
 
-m.constrain(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
-            + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
-            + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
-            over=range(0, N - 2), lower=0.0, upper=0.0)
+core.constrain(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
+               + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
+               + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
+               over=range(0, N - 2), lower=0.0, upper=0.0)
 
-sol = m.solve(solver="ipopt")
+model = exa.Model(core)
+sol = model.solve(solver="ipopt")
 print(sol.status, sol.objective, sol[x])
 ```
+
+A `Core` accumulates the model and a `Model` is built from it, mirroring the backend's
+own two-stage construction.
 
 ```
 first_order 6.2324586324 [-0.95055636  0.91390082  0.98909052 ... 0.99999993]
@@ -53,7 +57,9 @@ Indices are 0-based, like the rest of Python: `x[0]` is the first variable and
 pip install examodels
 ```
 
-The backend is fetched automatically on first use. `import examodels` does not start it —
+**You do not need Julia installed.** The backend runtime is downloaded into the
+environment on first use (verified from a shell with no `julia` on `PATH`; it costs
+about 260 MB and one resolve). `import examodels` does not start it —
 the runtime boots the first time you build a model, so importing the package stays instant.
 
 Solvers are backend packages rather than Python ones, so they are installed through
@@ -66,11 +72,42 @@ exa.install_solver("madnlp")     # CPU or GPU
 exa.available_solvers()          # ['ipopt', 'madnlp']
 ```
 
+## Parameters and subexpressions
+
+```python
+th = core.add_parameters([100.0, 1.0])
+core.minimize(lambda i: th[0] * (x[i-1]**2 - x[i])**2 + (x[i-1] - th[1])**2, over=range(1, N))
+
+model = exa.Model(core)
+model.set_parameters(th, [200.0, 1.0])    # re-solve without rebuilding
+```
+
+```python
+s = core.add_expression(lambda i: y[i]**2, over=range(N))
+core.minimize(lambda i: (s[i] - 1)**2, over=range(N))
+core.constrain(lambda i: s[i] + s[i+1], over=range(N - 1), lower=0.0)
+```
+
+Subexpressions are inlined at each use — they add no variables and no constraint rows.
+
 ## GPU
 
 ```python
-m = exa.Model(backend="cuda")     # then solve with madnlp
+exa.install_backend("cuda")               # once
+core = exa.Core(backend="cuda")
+...
+sol = exa.Model(core).solve(solver="madnlp")
 ```
+
+`exa.backends()` lists what can be constructed: `serial`, `cpu` (threads), `cuda`,
+`rocm`, `oneapi`, `metal`. Each is loaded only if it is asked for, so a CPU model never
+starts a GPU runtime. On a device model a device-capable linear solver is selected
+automatically.
+
+Note if you also use CuPy in the same process: it works, but CuPy's pip-installed CUDA
+libraries can shadow the backend's own, which the backend will warn about. Keeping
+`site-packages/nvidia/*/lib` off `LD_LIBRARY_PATH` avoids it. There is no zero-copy
+handoff between CuPy arrays and device model arrays yet.
 
 ## API
 
@@ -80,9 +117,8 @@ m = exa.Model(backend="cuda")     # then solve with madnlp
 | `.add_variables(n, start=, lower=, upper=)` | a block of variables; index it with `[i]` |
 | `.minimize(f, over=)` | add `sum(f(i) for i in over)` to the objective |
 | `.constrain(f, over=, lower=, upper=)` | one row per index, `lower <= f(i) <= upper` |
-| `.build()` | finish; returns a `Problem` |
-| `.solve(solver=)` | build and solve; returns a `Solution` |
-| `Problem` | `.nvar` `.ncon` `.nnzj` `.nnzh` `.x0` `.objective(x)` `.gradient(x)` `.constraints(x)` |
+| `.solve(solver=)` | build and solve in one step |
+| `Model` | `.nvar` `.ncon` `.nnzj` `.nnzh` `.x0` `.objective(x)` `.gradient(x)` `.constraints(x)` |
 | `Solution` | `.status` `.objective` `.iterations` `.x` `.y` `.elapsed` `.success`, and `sol[x]` |
 
 Everything crossing the boundary is a Python scalar, a `range`, or a numpy array.
