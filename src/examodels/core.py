@@ -1,8 +1,11 @@
 """Model construction: variables, parameters, subexpressions, objective, constraints."""
+import dis
+import types
+
 import numpy as np
 
 from . import _bridge as _b
-from .node import Block, Constraint, Expression, Node, Records
+from .node import Block, Constraint, Expression, Node, Records, _RecordCursor
 
 __all__ = ["Core", "trace", "backends", "install_backend"]
 
@@ -44,6 +47,47 @@ def _data(v, what):
 
 def _node(f):
     return f if isinstance(f, Node) else trace(f)
+
+
+def _cell(value):
+    return (lambda v: (lambda: v).__closure__[0])(value)
+
+
+def _iterable_of(iterator):
+    """The thing a generator expression is iterating, without consuming it."""
+    if isinstance(iterator, _RecordCursor):
+        return iterator.records
+    try:                                    # range_iterator, list_iterator, ...
+        fn, args, *_ = iterator.__reduce__()
+        if args:
+            return args[0]
+    except (AttributeError, TypeError):
+        pass
+    raise TypeError("could not recover the index set from the generator expression; "
+                    "pass a function and `over=` instead")
+
+
+def _as_function(f, over):
+    """Accept either `lambda i: expr` with `over=`, or `(expr for i in over)`.
+
+    A generator expression carries both the body and the index set, so it reads
+    the way the same model reads in the backend's own syntax. It is not iterated:
+    the body is re-invoked once with a symbolic index, exactly as for a function.
+    """
+    if not isinstance(f, types.GeneratorType):
+        return f, over
+    frame = f.gi_frame
+    if frame is None or ".0" not in frame.f_locals:
+        raise TypeError("expected a generator expression, like (x[i]**2 for i in ...)")
+    if sum(i.opname == "FOR_ITER" for i in dis.get_instructions(f.gi_code)) > 1:
+        raise TypeError(
+            "a generator expression with more than one `for` cannot be traced; "
+            "use a function and `over=` (with a Records index set for several indices)")
+    recovered = _iterable_of(frame.f_locals[".0"])
+    body = types.FunctionType(
+        f.gi_code, frame.f_globals, "<traced>", (),
+        tuple(_cell(frame.f_locals[n]) for n in f.gi_code.co_freevars))
+    return (lambda i: next(body(iter([i])))), (recovered if over is None else over)
 
 
 #: name -> (backend package, constructor). Each is loaded only if it is asked for:
@@ -143,14 +187,21 @@ class Core:
         return Block(self._add(_b.EM.add_par, arr), arr.size, "parameter")
 
     # -- subexpressions -------------------------------------------------------
-    def add_expr(self, f, over):
+    def add_expr(self, f, over=None):
         """Name a reusable subexpression. Inlined at each use, so it adds no
         variables and no constraints. `over` may be a tuple for `s[t, i]`."""
+        f, over = _as_function(f, over)
         return Expression(f, over)
 
     # -- objective and constraints --------------------------------------------
-    def add_obj(self, f, over=range(1)):
-        """Add `sum(f(i) for i in over)` to the objective. `f` is traced once."""
+    def add_obj(self, f, over=None):
+        """Add `sum(f(i) for i in over)` to the objective.
+
+        Write it either way:  `add_obj(x[i]**2 for i in range(n))`
+        or                    `add_obj(lambda i: x[i]**2, over=range(n))`.
+        """
+        f, over = _as_function(f, over)
+        over = range(1) if over is None else over
         args, _ = _index_set(over)
         fn = _b.obj_range if len(args) == 2 else _b.obj_iter
         self._core, _ = _b.guard(fn, self._core, _b.unwrap(_node(f)), *args)
@@ -158,6 +209,9 @@ class Core:
 
     def add_con(self, *args, over=None, lower=0.0, upper=0.0):
         """Add constraints, or add terms to constraints already added.
+
+            core.add_con(x[i] + x[i+1] for i in range(n - 1))
+            core.add_con(lambda i: x[i] + x[i+1], over=range(n - 1))
 
         `add_con(f, over)` creates one row per index, `lower <= f(i) <= upper`, and
         returns a handle.
@@ -172,7 +226,8 @@ class Core:
             constraint, f, *rest = args               # add_con(handle, f, over)
             return self._augment(constraint, f, rest[0] if rest else over)
         f, *rest = args
-        over = rest[0] if rest else over
+        f, recovered = _as_function(f, rest[0] if rest else over)
+        over = recovered
         args, _ = _index_set(over)
         # The backend's `add_con` has no low-level expression form (`add_obj` does),
         # so the expression is wrapped in a constant generator — the same approach
@@ -184,6 +239,7 @@ class Core:
         return Constraint(con, len(over))
 
     def _augment(self, constraint, f, over):
+        f, over = _as_function(f, over)
         idx, expr = f(Node(_b.EM.DataSource()))
         args, _ = _index_set(over)
         fn = _b.aug_range if len(args) == 2 else _b.aug_iter

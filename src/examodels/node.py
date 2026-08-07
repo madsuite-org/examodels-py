@@ -144,37 +144,67 @@ class Expression:
         return f"<subexpression {' x '.join(str(len(o)) for o in self._over)}>"
 
 
+class _RecordCursor:
+    """What iterating a `Records` yields to a generator expression.
+
+    A generator expression evaluates its outermost iterable eagerly and keeps the
+    *iterator*. Handing it one of these means the index set can be recovered as the
+    `Records` itself, rather than as the rows it was built from — so the converted
+    table is reused instead of rebuilt.
+    """
+
+    __slots__ = ("records",)
+
+    def __init__(self, records):
+        self.records = records
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        raise StopIteration
+
+
 class Records:
-    """A table of rows to index a model over, instead of a plain range.
+    """A table of rows to index a model over, instead of a range.
 
-        arcs = Records({"bus": [...], "i": [...]}, index=["bus", "i"])
-        core.constrain(lambda a: p[a.i] - ..., over=arcs)
+        Gen = namedtuple("Gen", "i bus cost")
+        gens = Records([Gen(0, 1, 5.0), Gen(1, 2, 6.0)], index=["i", "bus"])
+        core.add_obj(g.cost * pg[g.i]**2 for g in gens)
 
-    Columns named in `index` hold positions of variables; they are 0-based like
-    everything else here, and converted for the backend once, on the way in.
+    Rows are named tuples, mirroring how the backend holds them. Fields named in
+    `index` hold positions of variables; they are 0-based like everything else and
+    converted once, on the way in.
     """
 
     __slots__ = ("_jl", "_n", "_fields")
 
-    def __init__(self, columns, index=()):
+    def __init__(self, rows, index=()):
         import numpy as np
+        rows = list(rows)
+        if not rows:
+            raise ValueError("a Records table needs at least one row")
+        if isinstance(rows[0], dict):
+            raise TypeError(
+                "rows must be named tuples, not dicts — define one with "
+                "collections.namedtuple so the field names travel with the data")
+        fields = getattr(type(rows[0]), "_fields", None)
+        if fields is None:
+            raise TypeError(f"rows must be named tuples, got {type(rows[0]).__name__}")
         index = set(index)
-        names, cols, n = [], [], None
-        for name, values in columns.items():
-            a = np.asarray(values)
-            a = np.ascontiguousarray(a, dtype=np.int64) + 1 if name in index else \
-                np.ascontiguousarray(a, dtype=np.float64)
-            if n is None:
-                n = a.size
-            elif a.size != n:
-                raise ValueError(f"column {name!r} has {a.size} rows, expected {n}")
-            names.append(name)
-            cols.append(a)
-        self._jl = _b.mkrecords(names, cols)
-        self._n, self._fields = n, tuple(names)
+        cols = []
+        for k, name in enumerate(fields):
+            values = [r[k] for r in rows]
+            cols.append(np.ascontiguousarray(values, dtype=np.int64) + 1 if name in index
+                        else np.ascontiguousarray(values, dtype=np.float64))
+        self._jl = _b.mkrecords(list(fields), cols)
+        self._n, self._fields = len(rows), tuple(fields)
 
     def __len__(self):
         return self._n
+
+    def __iter__(self):
+        return _RecordCursor(self)
 
     def __repr__(self):
         return f"<Records {self._n} rows: {', '.join(self._fields)}>"

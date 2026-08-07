@@ -72,3 +72,31 @@ def test_branching_on_index_is_rejected(xvar):
     x = xvar
     with pytest.raises(TypeError):
         exa.trace(lambda i: x[i] if i else x[i-1])
+
+
+def test_generator_expression_traces_like_a_lambda(xvar):
+    """`expr for i in over` must produce exactly what the lambda form does."""
+    x = xvar
+    core = exa.Core()
+    y = core.add_var(N)
+    got_gen = exa.trace(lambda i: 100 * (y[i-1]**2 - y[i])**2 + (y[i-1] - 1)**2)
+    # build the same thing through the generator path and compare structurally
+    from examodels.core import _as_function
+    f, over = _as_function((100 * (y[i-1]**2 - y[i])**2 + (y[i-1] - 1)**2
+                            for i in range(1, N)), None)
+    assert over == range(1, N), over
+    assert same_structure(exa.trace(f), got_gen)
+
+
+def test_generator_expression_does_not_consume_the_generator():
+    g = (i * 2 for i in range(4))
+    from examodels.core import _as_function
+    _as_function(g, None)
+    assert list(g) == [0, 2, 4, 6], "the generator was consumed while tracing"
+
+
+def test_multiple_for_clauses_are_rejected_clearly():
+    core = exa.Core()
+    z = core.add_var(9)
+    with pytest.raises(TypeError, match="more than one"):
+        core.add_obj(z[i] * z[j] for i in range(3) for j in range(3))

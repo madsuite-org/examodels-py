@@ -4,9 +4,15 @@ Produces the per-unit quantities the OPF model needs, following the same
 conventions as PowerModels: per-unit power, branch admittances and the composed
 coefficients c1..c8, angle limits in radians.
 """
-import cmath
 import math
 import re
+from collections import namedtuple
+
+Bus = namedtuple("Bus", "i pd gs qd bs")
+Gen = namedtuple("Gen", "i bus cost1 cost2 cost3")
+Arc = namedtuple("Arc", "i bus rate_a")
+Branch = namedtuple("Branch", "f_idx t_idx f_bus t_bus c1 c2 c3 c4 c5 c6 c7 c8 rate_a_sq")
+Ref = namedtuple("Ref", "b")
 
 _MATRIX = re.compile(r"mpc\.(\w+)\s*=\s*\[(.*?)\];", re.S)
 _SCALAR = re.compile(r"mpc\.(\w+)\s*=\s*([\d.eE+-]+)\s*;")
@@ -32,20 +38,16 @@ def read(filename):
     buses = mats["bus"]
     busidx = {int(r[0]): k for k, r in enumerate(buses)}          # 0-based
 
-    bus = {"i": [], "pd": [], "gs": [], "qd": [], "bs": []}
-    vmin, vmax, ref_buses = [], [], []
+    bus, vmin, vmax, ref_buses = [], [], [], []
     for k, r in enumerate(buses):
-        bus["i"].append(k)
-        bus["pd"].append(r[2] / base)
-        bus["qd"].append(r[3] / base)
-        bus["gs"].append(r[4] / base)
-        bus["bs"].append(r[5] / base)
+        bus.append(Bus(i=k, pd=r[2] / base, qd=r[3] / base,
+                       gs=r[4] / base, bs=r[5] / base))
         vmax.append(r[11]); vmin.append(r[12])
         if int(r[1]) == 3:
-            ref_buses.append(k)
+            ref_buses.append(Ref(b=k))
 
     costs = mats.get("gencost", [])
-    gen = {"i": [], "bus": [], "cost1": [], "cost2": [], "cost3": []}
+    gen = []
     pmin, pmax, qmin, qmax = [], [], [], []
     g = 0
     for j, r in enumerate(mats["gen"]):
@@ -55,20 +57,16 @@ def read(filename):
         ncost = int(c[3])
         coeffs = c[4:4 + ncost]
         c2, c1, c0 = ([0.0] * (3 - len(coeffs)) + list(coeffs))[-3:]
-        gen["i"].append(g); gen["bus"].append(busidx[int(r[0])])
-        gen["cost1"].append(c2 * base**2)                         # per-unit rescale
-        gen["cost2"].append(c1 * base)
-        gen["cost3"].append(c0)
+        gen.append(Gen(i=g, bus=busidx[int(r[0])],
+                       cost1=c2 * base**2,                        # per-unit rescale
+                       cost2=c1 * base, cost3=c0))
         pmax.append(r[8] / base); pmin.append(r[9] / base)
         qmax.append(r[3] / base); qmin.append(r[4] / base)
         g += 1
 
     branches = [r for r in mats["branch"] if int(r[10]) != 0]
     nb = len(branches)
-    branch = {k: [] for k in ("f_idx", "t_idx", "f_bus", "t_bus",
-                              "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "rate_a_sq")}
-    arc = {"i": [], "bus": [], "rate_a": []}
-    angmin, angmax, rate_a = [], [], []
+    branch, arc, angmin, angmax = [], [], [], []
 
     for l, r in enumerate(branches):
         f, t = busidx[int(r[0])], busidx[int(r[1])]
@@ -83,26 +81,20 @@ def read(filename):
         b_fr = b_to = bb / 2.0
         rate = (r[5] / base) if r[5] > 0 else 1e3
 
-        branch["f_idx"].append(l);        branch["t_idx"].append(nb + l)
-        branch["f_bus"].append(f);        branch["t_bus"].append(t)
-        branch["c1"].append((-gg * tr - bshunt * ti) / ttm)
-        branch["c2"].append((-bshunt * tr + gg * ti) / ttm)
-        branch["c3"].append((-gg * tr + bshunt * ti) / ttm)
-        branch["c4"].append((-bshunt * tr - gg * ti) / ttm)
-        branch["c5"].append((gg + g_fr) / ttm)
-        branch["c6"].append((bshunt + b_fr) / ttm)
-        branch["c7"].append(gg + g_to)
-        branch["c8"].append(bshunt + b_to)
-        branch["rate_a_sq"].append(rate ** 2)
+        branch.append(Branch(
+            f_idx=l, t_idx=nb + l, f_bus=f, t_bus=t,
+            c1=(-gg * tr - bshunt * ti) / ttm, c2=(-bshunt * tr + gg * ti) / ttm,
+            c3=(-gg * tr + bshunt * ti) / ttm, c4=(-bshunt * tr - gg * ti) / ttm,
+            c5=(gg + g_fr) / ttm,              c6=(bshunt + b_fr) / ttm,
+            c7=gg + g_to,                      c8=bshunt + b_to,
+            rate_a_sq=rate ** 2))
         angmin.append(math.radians(r[11])); angmax.append(math.radians(r[12]))
 
     for l, r in enumerate(branches):                              # arcs: from, then to
-        arc["i"].append(l); arc["bus"].append(busidx[int(r[0])])
-        arc["rate_a"].append(branch["rate_a_sq"][l] ** 0.5)
+        arc.append(Arc(i=l, bus=busidx[int(r[0])], rate_a=branch[l].rate_a_sq ** 0.5))
     for l, r in enumerate(branches):
-        arc["i"].append(nb + l); arc["bus"].append(busidx[int(r[1])])
-        arc["rate_a"].append(branch["rate_a_sq"][l] ** 0.5)
-    rate_a = list(arc["rate_a"])
+        arc.append(Arc(i=nb + l, bus=busidx[int(r[1])], rate_a=branch[l].rate_a_sq ** 0.5))
+    rate_a = [a.rate_a for a in arc]
 
     return dict(bus=bus, gen=gen, arc=arc, branch=branch, ref_buses=ref_buses,
                 vmin=vmin, vmax=vmax, pmin=pmin, pmax=pmax, qmin=qmin, qmax=qmax,

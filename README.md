@@ -10,13 +10,12 @@ N = 10
 core = exa.Core()
 x = core.add_var(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
 
-core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
-             over=range(1, N))
+core.add_obj(100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2 for i in range(1, N))
 
-core.add_con(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
-               + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
-               + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
-               over=range(0, N - 2), lower=0.0, upper=0.0)
+core.add_con((3 * x[i+1]**3 + 2 * x[i+2] - 5
+              + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
+              + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3
+              for i in range(0, N - 2)), lower=0.0, upper=0.0)
 
 model = exa.Model(core)
 sol = model.solve(solver="ipopt")
@@ -30,9 +29,18 @@ own two-stage construction.
 first_order 6.2324586324 [-0.95055636  0.91390082  0.98909052 ... 0.99999993]
 ```
 
+A generator expression carries both the body and the index set, so it reads the way
+the equivalent model reads in ExaModels.jl. The same thing can be written as a
+function when that is clearer — they produce byte-identical models:
+
+```python
+core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2, over=range(1, N))
+```
+
 ## How it works
 
-Each expression is an ordinary Python function of an index. It is called **once**, with a
+Each expression is an ordinary Python function of an index (a generator expression is
+one too — its body is re-invoked, never iterated). It is called **once**, with a
 symbolic index, and the operators it applies build one structured expression that describes
 every row of the objective or constraint block. The loop never runs at model-build time,
 which is what lets the derivatives be evaluated as a single parallel kernel over the whole
@@ -131,10 +139,10 @@ like everything else:
 
 ```python
 gen = exa.Records({"i": [...], "bus": [...], "cost1": [...]}, index=["i", "bus"])
-core.add_obj(lambda g: g.cost1 * pg[g.i]**2, over=gen)
+core.add_obj(g.cost1 * pg[g.i]**2 for g in gen)
 
-balance = core.add_con(lambda b: b.pd + b.gs * vm[b.i]**2, over=bus)
-core.add_con(balance, lambda a: (a.bus, p[a.i]), over=arc)     # add terms into rows
+balance = core.add_con(b.pd + b.gs * vm[b.i]**2 for b in bus)
+core.add_con(balance, ((a.bus, p[a.i]) for a in arc))          # add terms into rows
 ```
 
 `examples/ac_opf.py` builds AC optimal power flow this way and solves the PGLib

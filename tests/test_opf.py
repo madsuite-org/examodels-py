@@ -1,14 +1,17 @@
 """AC optimal power flow: records as index sets, field access, constraint augmentation."""
+import os
+import os
 import pathlib
 import sys
 
 import pytest
+from collections import namedtuple
 
 import examodels as exa
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "examples"))
 
-PGLIB = pathlib.Path("/home/sushin/git/pglib-opf")
+PGLIB = pathlib.Path(os.environ.get("PGLIB_DIR", "~/git/pglib-opf")).expanduser()
 pglib = pytest.mark.skipif(not PGLIB.is_dir(), reason="PGLib cases not available here")
 
 
@@ -51,11 +54,28 @@ def test_augmentation_adds_terms_to_existing_rows():
     core = exa.Core()
     x = core.add_var(3, start=1.0)
     y = core.add_var(3, start=1.0)
-    rows = exa.Records({"i": [0, 1, 2], "c": [1.0, 1.0, 1.0]}, index=["i"])
-    con = core.add_con(lambda r: r.c + x[r.i], over=rows)
-    core.add_con(con, lambda r: (r.i, y[r.i]), over=rows)
+    Row = namedtuple("Row", "i c")
+    rows = exa.Records([Row(k, 1.0) for k in range(3)], index=["i"])
+    con = core.add_con(r.c + x[r.i] for r in rows)
+    core.add_con(con, ((r.i, y[r.i]) for r in rows))
     model = exa.Model(core)
     assert model.ncon == 3, "augmentation must not add constraint rows"
     # each row is c + x + y = 1 + 1 + 1
     import numpy as np
     assert np.allclose(model.constraints(np.ones(6)), 3.0)
+
+
+def test_records_require_named_tuples_not_dicts():
+    with pytest.raises(TypeError, match="named tuples, not dicts"):
+        exa.Records([{"i": 0, "c": 1.0}], index=["i"])
+
+
+def test_generator_over_records_recovers_the_table():
+    Row = namedtuple("Row", "i c")
+    rows = exa.Records([Row(k, float(k)) for k in range(4)], index=["i"])
+    core = exa.Core()
+    x = core.add_var(4, start=1.0)
+    core.add_obj(r.c * x[r.i]**2 for r in rows)
+    m = exa.Model(core)
+    assert m.nvar == 4
+    assert m.objective([1.0] * 4) == pytest.approx(0 + 1 + 2 + 3)
