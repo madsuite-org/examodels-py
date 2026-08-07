@@ -29,6 +29,27 @@ def _compat():
     return spec["packages"]["ExaModels"]["version"]
 
 
+def _configure_runtime():
+    """Settings the runtime reads at startup, so they must be set before import.
+
+    The user's personal Julia startup file is skipped: it belongs to their
+    interactive sessions, and running it inside a library's backend makes this
+    package's behaviour depend on their dotfiles. (On this machine it loads Revise,
+    which then fails against a custom system image.)
+    """
+    import os
+    os.environ.setdefault("PYTHON_JULIACALL_STARTUPFILE", "no")
+    if os.environ.get("PYTHON_JULIACALL_SYSIMAGE"):
+        return
+    try:
+        from .sysimage import path
+        img = path()
+    except Exception:                                        # noqa: BLE001
+        return
+    if img.is_file():
+        os.environ["PYTHON_JULIACALL_SYSIMAGE"] = str(img)
+
+
 def _satisfies(version, bound):
     """Julia's caret semantics: the leading non-zero component must match."""
     want = tuple(int(p) for p in bound.split("."))
@@ -56,6 +77,7 @@ def _boot():
     global _S
     if _S is not None:
         return _S
+    _configure_runtime()
     from juliacall import Main as jl
     jl.seval("using ExaModels, NLPModels")
     version = _check(jl)

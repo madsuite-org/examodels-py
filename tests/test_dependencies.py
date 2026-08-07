@@ -81,3 +81,10 @@ def test_the_backend_source_in_use_is_reported():
     path = str(_b.seval("pathof(ExaModels)"))
     print(f"\nbackend in use: {path} (version {_b.version})")
     assert path.endswith("ExaModels.jl")
+
+
+def test_user_startup_file_is_not_run_in_the_backend():
+    """Our behaviour must not depend on the user's personal Julia dotfiles."""
+    import os
+    _b._boot()
+    assert os.environ.get("PYTHON_JULIACALL_STARTUPFILE") == "no"

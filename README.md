@@ -123,6 +123,38 @@ handoff between CuPy arrays and device model arrays yet.
 
 Everything crossing the boundary is a Python scalar, a `range`, or a numpy array.
 
+## Time to first solve
+
+Everything expensive is per *process*, not per model. On one machine, a first
+1000-variable solve costs about 26 s; the same model built again in the same
+process costs **0.08 s**, and a model with a different expression costs **1.3 s**.
+
+The cost divides in two:
+
+- **Fixed per process** (~9 s): starting the runtime, loading packages, compiling
+  the solver's generic code.
+- **Per model *shape*** (~9 s): the backend encodes an expression — and the model
+  built so far — in a Julia *type*, so each distinct shape compiles its own
+  derivative kernels. This cannot be precompiled: the type does not exist until
+  your function runs. It is also the reason the evaluations are fast.
+
+So the effective fix is to keep the process alive — a session, a notebook, or a
+worker — rather than to pay it per script.
+
+If you do need a faster cold start, a prebuilt system image removes most of the
+fixed part:
+
+```python
+import examodels as exa
+exa.sysimage.build()      # ~10 minutes, ~340 MB, once per environment
+```
+
+Every later process picks it up automatically. Measured, it takes a first solve
+from 26.6 s to 23.2 s — the compile savings are real (first solve 5.6 s -> 1.6 s)
+but a large image also costs ~4 s more to load, so the net is modest. Worth it for
+a fixed deployment; probably not for a laptop. It must be rebuilt when the backend
+or solvers change.
+
 ## Tests
 
 ```
