@@ -175,3 +175,17 @@ def test_timings_are_reported():
     timed.solve()
     report = exa.timings(timed)
     assert isinstance(report, str) and len(report) > 0
+
+
+@pytest.mark.parametrize("bad", [
+    "X; run(`echo hi`)", "X end; y=1; struct", "1abc", "", "aé", 42,
+])
+def test_a_tag_name_that_is_not_an_identifier_is_refused(bad):
+    """The one caller-supplied string reaching the backend as source, so check it."""
+    with pytest.raises(ValueError, match="plain identifier"):
+        exa.new_tag(bad)
+
+
+def test_an_unknown_tag_kind_is_refused():
+    with pytest.raises(ValueError, match="variable.*constraint"):
+        exa.new_tag("Fine", "elephant")

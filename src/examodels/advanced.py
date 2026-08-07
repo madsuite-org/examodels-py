@@ -107,10 +107,17 @@ def new_tag(name, kind="variable"):
     """Define a tag to mark variables or constraints with.
 
     The backend dispatches on a tag's *type*, so one is created here rather than
-    passed as a value.
+    passed as a value. `name` is checked before use: it is the only caller-supplied
+    string in this package that reaches the backend as source rather than as data,
+    and an unchecked one would let any Julia code through.
     """
-    super_ = {"variable": "AbstractVariableTag",
-              "constraint": "AbstractConstraintTag"}[kind]
+    if not (isinstance(name, str) and name.isidentifier() and name.isascii()):
+        raise ValueError(f"a tag name must be a plain identifier, got {name!r}")
+    try:
+        super_ = {"variable": "AbstractVariableTag",
+                  "constraint": "AbstractConstraintTag"}[kind]
+    except KeyError:
+        raise ValueError(f"kind must be 'variable' or 'constraint', got {kind!r}") from None
     return _b.seval(f"""begin
         isdefined(Main, :{name}) ||
             Core.eval(Main, :(struct {name} <: ExaModels.{super_} end))

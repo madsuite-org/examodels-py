@@ -15,9 +15,8 @@ pglib = pytest.mark.skipif(not PGLIB.is_dir(), reason="PGLib cases not available
 
 
 def cases(include_large=False):
-    import tomllib
-    table = tomllib.loads((pathlib.Path(__file__).parent / "data" / "cases.toml")
-                          .read_text())["case"]
+    from _toml import load as _load_toml
+    table = _load_toml(pathlib.Path(__file__).parent / "data" / "cases.toml")["case"]
     return [c for c in table if include_large or not c.get("large")]
 
 

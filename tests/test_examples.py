@@ -1,4 +1,5 @@
 """Every example must import and build. A broken one shipped once, unnoticed."""
+import os
 import pathlib
 import runpy
 import subprocess
@@ -21,8 +22,15 @@ def test_an_example_imports_cleanly(path):
         sys.path.remove(str(path.parent))
 
 
+NEEDS_DATA = {"ac_opf": pathlib.Path(
+    os.environ.get("PGLIB_DIR", pathlib.Path.home() / "git/pglib-opf"))}
+
+
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.stem)
 def test_an_example_runs_end_to_end(path):
+    needed = NEEDS_DATA.get(path.stem)
+    if needed is not None and not needed.is_dir():
+        pytest.skip(f"{path.stem} needs benchmark data at {needed}")
     out = subprocess.run([sys.executable, str(path)], capture_output=True, text=True,
                          cwd=path.parent, timeout=1800)
     assert out.returncode == 0, out.stderr[-800:]

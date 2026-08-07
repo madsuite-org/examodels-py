@@ -65,7 +65,18 @@ jobs:
           key: julia-examples-${{ hashFiles('src/examodels/juliapkg.json') }}
       - run: pip install -e ".[test]"
       - run: python -c "import examodels; examodels.install_solver('ipopt')"
+
+      # one small benchmark case, so the OPF example is actually exercised
+      - name: fetch a PGLib case
+        run: |
+          mkdir -p "$HOME/pglib"
+          curl -sSfL -o "$HOME/pglib/pglib_opf_case3_lmbd.m" \
+            https://raw.githubusercontent.com/power-grid-lib/pglib-opf/master/pglib_opf_case3_lmbd.m
+
       - run: pytest tests/test_examples.py -q
+        env:
+          PGLIB_DIR: ${{ env.HOME }}/pglib
+          PGLIB_CASE: ${{ env.HOME }}/pglib/pglib_opf_case3_lmbd.m
 
   interface:
     # A fast gate on the thing most likely to break: the backend's exported

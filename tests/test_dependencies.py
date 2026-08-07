@@ -42,8 +42,8 @@ def test_startup_check_is_not_vacuous():
 
 def test_python_dependencies_are_only_what_we_declare():
     """Required dependencies stay at two; anything else must be an optional extra."""
-    import tomllib
-    declared = tomllib.loads((ROOT.parents[1] / "pyproject.toml").read_text())
+    from _toml import load as _load_toml
+    declared = _load_toml(ROOT.parents[1] / "pyproject.toml")
 
     def names_of(entries):
         return {d.split(">=")[0].split("[")[0].split("-cuda")[0].strip()
