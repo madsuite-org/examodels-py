@@ -11,11 +11,11 @@ N = 10
 def parametric_model():
     """The parametric Luksan-Vlcek model from the ExaModels parameter docs."""
     core = exa.Core()
-    th = core.add_parameters([100.0, 1.0])              # [penalty, offset]
-    x = core.add_variables(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
-    core.minimize(lambda i: th[0] * (x[i-1]**2 - x[i])**2 + (x[i-1] - th[1])**2,
+    th = core.add_par([100.0, 1.0])              # [penalty, offset]
+    x = core.add_var(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
+    core.add_obj(lambda i: th[0] * (x[i-1]**2 - x[i])**2 + (x[i-1] - th[1])**2,
                over=range(1, N))
-    core.constrain(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
+    core.add_con(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
                 + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
                 + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
                 over=range(0, N - 2), lower=0.0, upper=0.0)
@@ -24,8 +24,8 @@ def parametric_model():
 
 def test_parametric_expression_matches_julia():
     core = exa.Core()
-    th = core.add_parameters([100.0, 1.0])
-    x = core.add_variables(N)
+    th = core.add_par([100.0, 1.0])
+    x = core.add_var(N)
     got = exa.trace(lambda i: th[0] * (x[i-1]**2 - x[i])**2 + (x[i-1] - th[1])**2)
     want = reference_trace(
         x, "th[1] * (x[i-1]^2 - x[i])^2 + (x[i-1] - th[2])^2 for i = 2:10", th=th)
@@ -37,9 +37,9 @@ def test_changing_a_parameter_changes_the_solution_without_rebuilding():
     p = exa.Model(core)
 
     base = p.solve()
-    p.set_parameters(th, [200.0, 1.0])               # double the penalty
+    p.set_value(th, [200.0, 1.0])               # double the penalty
     heavier = p.solve()
-    p.set_parameters(th, [200.0, 0.5])               # move the offset
+    p.set_value(th, [200.0, 0.5])               # move the offset
     shifted = p.solve()
 
     for s in (base, heavier, shifted):
@@ -74,16 +74,16 @@ def test_matches_the_julia_parametric_model():
     o1, o2 = float(jl[0]), float(jl[1])
 
     assert p.solve().objective == pytest.approx(o1, rel=1e-8)
-    p.set_parameters(th, [200.0, 1.0])
+    p.set_value(th, [200.0, 1.0])
     assert p.solve().objective == pytest.approx(o2, rel=1e-8)
 
 
 def test_get_parameters_round_trips():
     core, x, th = parametric_model()
     p = exa.Model(core)
-    np.testing.assert_allclose(p.parameters(th), [100.0, 1.0])
-    p.set_parameters(th, [7.0, -3.0])
-    got = p.parameters(th)
+    np.testing.assert_allclose(p.get_value(th), [100.0, 1.0])
+    p.set_value(th, [7.0, -3.0])
+    got = p.get_value(th)
     assert isinstance(got, np.ndarray)
     np.testing.assert_allclose(got, [7.0, -3.0])
 
@@ -92,11 +92,11 @@ def test_wrong_number_of_values_is_rejected():
     """The backend's own size check must surface as a plain Python ValueError."""
     core, x, th = parametric_model()
     with pytest.raises(ValueError, match="expected 2 elements, got 3"):
-        exa.Model(core).set_parameters(th, [1.0, 2.0, 3.0])
+        exa.Model(core).set_value(th, [1.0, 2.0, 3.0])
 
 
 def test_parameter_index_out_of_range():
     core = exa.Core()
-    th = core.add_parameters([1.0, 2.0])
+    th = core.add_par([1.0, 2.0])
     with pytest.raises(IndexError):
         th[2]

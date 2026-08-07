@@ -9,9 +9,9 @@ N = 10
 
 def luksan_vlcek(n=N):
     core = exa.Core()
-    x = core.add_variables(n, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(n)])
-    core.minimize(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2, over=range(1, n))
-    core.constrain(
+    x = core.add_var(n, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(n)])
+    core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2, over=range(1, n))
+    core.add_con(
         lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
         + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
         + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,

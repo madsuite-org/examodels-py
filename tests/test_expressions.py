@@ -10,8 +10,8 @@ N = 10
 def test_subexpression_is_inlined_not_referenced():
     """`s[i]` must expand to the expression itself, identically to writing it out."""
     core = exa.Core()
-    y = core.add_variables(N)
-    s = core.add_expression(lambda i: y[i]**2, over=range(N))
+    y = core.add_var(N)
+    s = core.add_expr(lambda i: y[i]**2, over=range(N))
 
     got = exa.trace(lambda i: (s[i] - 1)**2)
     want = reference_trace(y, "(x[i]^2 - 1)^2 for i = 1:10")
@@ -21,8 +21,8 @@ def test_subexpression_is_inlined_not_referenced():
 def test_matches_julias_own_add_expr():
     """The same model written with Julia's @add_expr must produce the same expression."""
     core = exa.Core()
-    y = core.add_variables(N)
-    s = core.add_expression(lambda i: y[i]**2, over=range(N))
+    y = core.add_var(N)
+    s = core.add_expr(lambda i: y[i]**2, over=range(N))
     got = exa.trace(lambda i: (s[i] - 1)**2)
 
     from examodels import _bridge as _b
@@ -39,10 +39,10 @@ def test_matches_julias_own_add_expr():
 
 def test_reuse_across_objective_and_constraint():
     core = exa.Core()
-    y = core.add_variables(N, start=0.5)
-    s = core.add_expression(lambda i: y[i]**2, over=range(N))
-    core.minimize(lambda i: (s[i] - 1)**2, over=range(N))
-    core.constrain(lambda i: s[i] + s[i+1], over=range(N - 1), lower=0.0, upper=10.0)
+    y = core.add_var(N, start=0.5)
+    s = core.add_expr(lambda i: y[i]**2, over=range(N))
+    core.add_obj(lambda i: (s[i] - 1)**2, over=range(N))
+    core.add_con(lambda i: s[i] + s[i+1], over=range(N - 1), lower=0.0, upper=10.0)
 
     p = exa.Model(core)
     assert p.nvar == N          # inlining adds no variables
@@ -54,11 +54,11 @@ def test_reuse_across_objective_and_constraint():
 def test_multidimensional_subexpression():
     T, K = 4, 3
     core = exa.Core()
-    z = core.add_variables(T * K, start=1.0)
+    z = core.add_var(T * K, start=1.0)
     # dx[t, i] = z[t*K + i] - z[(t-1)*K + i]
-    dx = core.add_expression(lambda t, i: z[t * K + i] - z[(t - 1) * K + i],
+    dx = core.add_expr(lambda t, i: z[t * K + i] - z[(t - 1) * K + i],
                           over=(range(1, T), range(K)))
-    core.minimize(lambda t: dx[t, 0]**2, over=range(1, T))
+    core.add_obj(lambda t: dx[t, 0]**2, over=range(1, T))
     p = exa.Model(core)
     assert p.nvar == T * K
     assert len(dx) == (T - 1) * K
@@ -67,16 +67,16 @@ def test_multidimensional_subexpression():
 
 def test_wrong_index_count_is_rejected():
     core = exa.Core()
-    y = core.add_variables(N)
-    s = core.add_expression(lambda i: y[i]**2, over=range(N))
+    y = core.add_var(N)
+    s = core.add_expr(lambda i: y[i]**2, over=range(N))
     with pytest.raises(IndexError, match="indexed by 1, got 2"):
         s[1, 2]
 
 
 def test_concrete_index_outside_the_set_is_rejected():
     core = exa.Core()
-    y = core.add_variables(N)
-    s = core.add_expression(lambda i: y[i]**2, over=range(3, 7))
+    y = core.add_var(N)
+    s = core.add_expr(lambda i: y[i]**2, over=range(3, 7))
     with pytest.raises(IndexError, match="outside"):
         s[9]
     s[5]        # inside the set: fine

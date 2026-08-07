@@ -2,7 +2,7 @@
 import numpy as np
 
 from . import _bridge as _b
-from .node import Block, Expression, Node
+from .node import Block, Constraint, Expression, Node, Records
 
 __all__ = ["Core", "trace", "backends", "install_backend"]
 
@@ -19,16 +19,19 @@ def trace(f):
 
 
 def _index_set(over):
-    """Python index set -> backend index set, shifted from 0-based to 1-based.
+    """Describe an index set for the backend, shifted from 0-based to 1-based.
 
-    Symbolic indexing is then left alone, which keeps a traced expression
-    byte-identical to the one the backend builds for the equivalent native model.
+    Returns *arguments*, not an iterator: a Julia range that round-trips through
+    Python comes back as a `StepRange`, which several of the backend's size and
+    dispatch paths reject, so the iterator is constructed on the backend side.
+    Symbolic indexing is left unshifted, which keeps a traced expression identical
+    to the one the backend builds for itself.
     """
     if isinstance(over, range):
         if over.step != 1:
             raise ValueError("index sets must have step 1")
-        return _b.mkrange(over.start + 1, over.stop), len(over)
-    return _b.unwrap(over), len(over) if hasattr(over, "__len__") else None
+        return (over.start + 1, over.stop), len(over)
+    return (_b.unwrap(over),), len(over)
 
 
 def _data(v, what):
@@ -124,7 +127,7 @@ class Core:
         return out
 
     # -- variables and parameters ---------------------------------------------
-    def add_variables(self, n, start=0.0, lower=None, upper=None):
+    def add_var(self, n, start=0.0, lower=None, upper=None):
         """A block of `n` decision variables; index it with `[i]`."""
         kw = {"start": _data(start, "start")}
         if lower is not None:
@@ -133,33 +136,60 @@ class Core:
             kw["uvar"] = _data(upper, "upper")
         return Block(self._add(_b.EM.add_var, n, **kw), n)
 
-    def add_parameters(self, values):
+    def add_par(self, values):
         """A block of parameters — fixed values usable in expressions, changeable
         afterwards with `Model.set_parameters` without rebuilding."""
         arr = np.ascontiguousarray(values, dtype=np.float64).ravel()
         return Block(self._add(_b.EM.add_par, arr), arr.size, "parameter")
 
     # -- subexpressions -------------------------------------------------------
-    def add_expression(self, f, over):
+    def add_expr(self, f, over):
         """Name a reusable subexpression. Inlined at each use, so it adds no
         variables and no constraints. `over` may be a tuple for `s[t, i]`."""
         return Expression(f, over)
 
     # -- objective and constraints --------------------------------------------
-    def minimize(self, f, over=range(1)):
+    def add_obj(self, f, over=range(1)):
         """Add `sum(f(i) for i in over)` to the objective. `f` is traced once."""
-        self._add(_b.EM.add_obj, _b.unwrap(_node(f)), _index_set(over)[0])
+        args, _ = _index_set(over)
+        fn = _b.obj_range if len(args) == 2 else _b.obj_iter
+        self._core, _ = _b.guard(fn, self._core, _b.unwrap(_node(f)), *args)
         return self
 
-    def constrain(self, f, over, lower=0.0, upper=0.0):
-        """One row per index, constrained to `lower <= f(i) <= upper`."""
-        iters, _ = _index_set(over)
+    def add_con(self, *args, over=None, lower=0.0, upper=0.0):
+        """Add constraints, or add terms to constraints already added.
+
+        `add_con(f, over)` creates one row per index, `lower <= f(i) <= upper`, and
+        returns a handle.
+
+        `add_con(handle, f, over)` adds terms into those rows: `f(row)` returns
+        `(row_index, expression)` and the expression is added to that row. This is
+        how a balance is assembled from many sources -- every line and every
+        generator at a bus -- without materialising a sum per row. It mirrors the
+        backend's `add_con` / `add_con!` pair.
+        """
+        if args and isinstance(args[0], Constraint):
+            constraint, f, *rest = args               # add_con(handle, f, over)
+            return self._augment(constraint, f, rest[0] if rest else over)
+        f, *rest = args
+        over = rest[0] if rest else over
+        args, _ = _index_set(over)
         # The backend's `add_con` has no low-level expression form (`add_obj` does),
         # so the expression is wrapped in a constant generator — the same approach
         # its own MathOptInterface backend uses.
-        self._add(_b.EM.add_con, _b.mkgen(_b.unwrap(_node(f)), iters),
-                  lcon=_data(lower, "lower"), ucon=_data(upper, "upper"))
-        return self
+        gen = _b.gen_range(_b.unwrap(_node(f)), *args) if len(args) == 2 else \
+            _b.gen_iter(_b.unwrap(_node(f)), *args)
+        con = self._add(_b.EM.add_con, gen,
+                        lcon=_data(lower, "lower"), ucon=_data(upper, "upper"))
+        return Constraint(con, len(over))
+
+    def _augment(self, constraint, f, over):
+        idx, expr = f(Node(_b.EM.DataSource()))
+        args, _ = _index_set(over)
+        fn = _b.aug_range if len(args) == 2 else _b.aug_iter
+        self._add(_b.EM.add_con_b, _b.unwrap(constraint),
+                  fn(_b.unwrap(idx), _b.unwrap(expr), *args))
+        return constraint
 
     # -- finalize -------------------------------------------------------------
     def build(self):

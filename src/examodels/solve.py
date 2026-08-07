@@ -55,7 +55,10 @@ def solve(model, solver="ipopt", print_level=0, **options):
             # runs there; the default one indexes elementwise and cannot.
             options.setdefault("linear_solver", _device_linear_solver())
 
-    return Solution(_b.guard(getattr(_b.jl, entry), model._jl, **options))
+    import time
+    t0 = time.perf_counter()
+    raw = _b.guard(getattr(_b.jl, entry), model._jl, **options)
+    return Solution(raw, elapsed=time.perf_counter() - t0)
 
 
 def _on_device(model):

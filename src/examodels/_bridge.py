@@ -85,8 +85,36 @@ def _boot():
         typestr=jl.seval("x -> string(typeof(x))"),
         same_ty=jl.seval("(a, b) -> typeof(a) === typeof(b)"),
         getidx=jl.seval("(v, i) -> v[i]"),
-        mkrange=jl.seval("(a, b) -> a:b"),
-        mkgen=jl.seval("(node, iter) -> Base.Generator(_ -> node, iter)"),
+        # An index set must never round-trip through Python: a Julia range comes
+        # back out as a Python `range` and returns as a StepRange, which several of
+        # the backend's size and dispatch paths reject (get_lcon/get_ucon among
+        # them). So the range is built inside each call that consumes it. Vectors
+        # -- what `Records` produces -- do not convert, and pass through fine.
+        gen_range=jl.seval("(node, a, b) -> Base.Generator(_ -> node, UnitRange(a, b))"),
+        gen_iter=jl.seval("(node, itr) -> Base.Generator(_ -> node, itr)"),
+        obj_range=jl.seval("(c, e, a, b) -> ExaModels.add_obj(c, e, UnitRange(a, b))"),
+        obj_iter=jl.seval("(c, e, itr) -> ExaModels.add_obj(c, e, itr)"),
+        getfield_=jl.seval("(n, s) -> getproperty(n, Symbol(s))"),
+        # Evaluation buffers must live wherever the model's arrays live, so they
+        # are always allocated from the model rather than assumed to be host
+        # memory. On CPU this is the identity; on a device it is what makes the
+        # same code path work at all.
+        like=jl.seval("(m, n) -> similar(m.meta.x0, n)"),
+        # `Vector{Float64}(v)` first: a numpy array arrives as a PyArray, and
+        # copying one straight into device memory drops into a scalar path that
+        # cannot be compiled for a GPU.
+        upload=jl.seval("(m, v) -> (h = Vector{Float64}(v); "
+                        "y = similar(m.meta.x0, length(h)); copyto!(y, h); y)"),
+        tohost=jl.seval("x -> x isa Array ? x : Array(x)"),
+        # The pair must be built and consumed without crossing back into Python:
+        # a Julia Pair converts to a Python tuple on the way out, and returns as a
+        # Tuple, which is not what the augmentation entry point accepts.
+        aug_range=jl.seval("(i, e, a, b) -> Base.Generator(_ -> (i => e), UnitRange(a, b))"),
+        aug_iter=jl.seval("(i, e, itr) -> Base.Generator(_ -> (i => e), itr)"),
+        mkrecords=jl.seval("""(names, cols) -> begin
+            nt = Tuple(Symbol.(names))
+            [NamedTuple{nt}(Tuple(c[k] for c in cols)) for k in eachindex(first(cols))]
+        end"""),
         valtrue=jl.seval("Val(true)"),
     )
     return _S

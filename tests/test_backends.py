@@ -15,8 +15,8 @@ def test_gpu_backend_is_not_loaded_for_a_cpu_model():
             import examodels as exa
             from examodels import _bridge as b
             core = exa.Core()
-            x = core.add_variables(4)
-            core.minimize(lambda i: x[i]**2, over=range(4))
+            x = core.add_var(4)
+            core.add_obj(lambda i: x[i]**2, over=range(4))
             exa.Model(core)
             print(bool(b.seval("isdefined(Main, :CUDA)")))
         """)], capture_output=True, text=True, check=True)
@@ -34,9 +34,9 @@ def test_backends_are_listed():
 
 def _luksan(n, backend):
     core = exa.Core(backend=backend)
-    x = core.add_variables(n, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(n)])
-    core.minimize(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2, over=range(1, n))
-    core.constrain(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
+    x = core.add_var(n, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(n)])
+    core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2, over=range(1, n))
+    core.add_con(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
                    + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
                    + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
                    over=range(0, n - 2), lower=0.0, upper=0.0)

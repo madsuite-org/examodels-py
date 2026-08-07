@@ -7,11 +7,11 @@ __all__ = ["Model", "Solution"]
 
 
 def _py(v):
-    """Backend value -> a plain Python/numpy value."""
+    """Backend value -> a plain Python/numpy value, wherever it was stored."""
     if isinstance(v, (int, float, str, bool)):
         return v
     try:
-        return np.array(v, dtype=np.float64)
+        return np.array(_b.tohost(v), dtype=np.float64)
     except Exception:                                        # noqa: BLE001
         return v
 
@@ -23,8 +23,6 @@ class Model:
     off the backend rather than mirrored here, so nothing needs updating when the
     backend gains a field.
     """
-
-    __slots__ = ("_jl",)
 
     def __init__(self, core):
         from .core import Core
@@ -45,7 +43,11 @@ class Model:
 
     # -- evaluation -----------------------------------------------------------
     def objective(self, x):
-        return float(_b.guard(_b.EM.obj, self._jl, np.asarray(x, dtype=np.float64)))
+        return float(_b.guard(_b.EM.obj, self._jl, self._x(x)))
+
+    def _x(self, x):
+        """Primal vector, placed wherever this model's arrays live."""
+        return _b.upload(self._jl, np.ascontiguousarray(x, dtype=np.float64))
 
     def gradient(self, x):
         return self._inplace("grad!", self.nvar, x)
@@ -53,11 +55,20 @@ class Model:
     def constraints(self, x):
         return self._inplace("cons!", self.ncon, x)
 
+    def violation(self, x):
+        """Largest constraint violation at `x`.
+
+        Not `max|c(x)|`: for a one-sided constraint the value itself is unbounded
+        and says nothing about feasibility -- only how far outside its own bounds
+        each row sits does.
+        """
+        c = self.constraints(x)
+        return float(np.maximum(0.0, np.maximum(self.lcon - c, c - self.ucon)).max())
+
     def _inplace(self, fn, n, x):
-        out = np.zeros(n)
-        _b.guard(_b.seval(f"(m, x, o) -> NLPModels.{fn}(m, x, o)"),
-                 self._jl, np.asarray(x, dtype=np.float64), out)
-        return out
+        out = _b.like(self._jl, n)
+        _b.guard(_b.seval(f"(m, x, o) -> NLPModels.{fn}(m, x, o)"), self._jl, self._x(x), out)
+        return np.array(_b.tohost(out), dtype=np.float64)
 
     # -- parameters -----------------------------------------------------------
     def parameters(self, block):
@@ -78,19 +89,48 @@ class Model:
         return f"<Model nvar={self.nvar} ncon={self.ncon} nnzj={self.nnzj} nnzh={self.nnzh}>"
 
 
+#: What can be read back and changed on a built model, without rebuilding it:
+#: parameter values, the starting point, and variable and constraint bounds.
+#: Named as the backend names them.
+ACCESSORS = ("value", "start", "lvar", "uvar", "lcon", "ucon")
+
+
+def _accessors(name):
+    def get(self, handle):
+        return np.array(_b.tohost(_b.guard(getattr(_b.EM, f"get_{name}"), self._jl,
+                                           _b.unwrap(handle))), dtype=np.float64)
+
+    def set(self, handle, values):
+        _b.guard(getattr(_b.EM, f"set_{name}_b"), self._jl, _b.unwrap(handle),
+                 np.ascontiguousarray(values, dtype=np.float64).ravel())
+        return self
+
+    get.__name__, set.__name__ = f"get_{name}", f"set_{name}"
+    get.__doc__ = f"Read the {name} of a variable, parameter or constraint block."
+    set.__doc__ = f"Change the {name} of a block in place; the model is reused as is."
+    return get, set
+
+
+for _n in ACCESSORS:
+    _g, _s = _accessors(_n)
+    setattr(Model, _g.__name__, _g)
+    setattr(Model, _s.__name__, _s)
+
+
 class Solution:
     """Result of a solve. Fields come from the solver's own result object.
 
     `sol[block]` gives that block's values.
     """
 
-    _ALIASES = {"x": "solution", "y": "multipliers", "iterations": "iter",
-                "elapsed": "elapsed_time"}
+    _ALIASES = {"x": "solution", "y": "multipliers", "iterations": "iter"}
 
-    __slots__ = ("_raw",)
+    __slots__ = ("_raw", "elapsed")
 
-    def __init__(self, raw):
+    def __init__(self, raw, elapsed=float("nan")):
         self._raw = raw
+        #: wall-clock seconds, measured here: solvers do not agree on reporting it
+        self.elapsed = elapsed
 
     def __getattr__(self, name):
         if name.startswith("_"):
@@ -110,7 +150,8 @@ class Solution:
         return self.status in self._SUCCESS
 
     def __getitem__(self, block):
-        return np.array(_b.guard(_b.EM.solution, self._raw, block._jl), dtype=np.float64)
+        return np.array(_b.tohost(_b.guard(_b.EM.solution, self._raw, block._jl)),
+                        dtype=np.float64)
 
     def __repr__(self):
         return (f"<Solution status={self.status!r} objective={self.objective:.6g} "

@@ -8,12 +8,12 @@ import examodels as exa
 
 N = 10
 core = exa.Core()
-x = core.add_variables(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
+x = core.add_var(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
 
-core.minimize(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
-              over=range(1, N))
+core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
+             over=range(1, N))
 
-core.constrain(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
+core.add_con(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
                + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
                + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
                over=range(0, N - 2), lower=0.0, upper=0.0)
@@ -75,17 +75,17 @@ exa.available_solvers()          # ['ipopt', 'madnlp']
 ## Parameters and subexpressions
 
 ```python
-th = core.add_parameters([100.0, 1.0])
-core.minimize(lambda i: th[0] * (x[i-1]**2 - x[i])**2 + (x[i-1] - th[1])**2, over=range(1, N))
+th = core.add_par([100.0, 1.0])
+core.add_obj(lambda i: th[0] * (x[i-1]**2 - x[i])**2 + (x[i-1] - th[1])**2, over=range(1, N))
 
 model = exa.Model(core)
-model.set_parameters(th, [200.0, 1.0])    # re-solve without rebuilding
+model.set_value(th, [200.0, 1.0])    # re-solve without rebuilding
 ```
 
 ```python
-s = core.add_expression(lambda i: y[i]**2, over=range(N))
-core.minimize(lambda i: (s[i] - 1)**2, over=range(N))
-core.constrain(lambda i: s[i] + s[i+1], over=range(N - 1), lower=0.0)
+s = core.add_expr(lambda i: y[i]**2, over=range(N))
+core.add_obj(lambda i: (s[i] - 1)**2, over=range(N))
+core.add_con(lambda i: s[i] + s[i+1], over=range(N - 1), lower=0.0)
 ```
 
 Subexpressions are inlined at each use — they add no variables and no constraint rows.
@@ -114,14 +114,32 @@ handoff between CuPy arrays and device model arrays yet.
 | | |
 |---|---|
 | `Model()` | start building |
-| `.add_variables(n, start=, lower=, upper=)` | a block of variables; index it with `[i]` |
-| `.minimize(f, over=)` | add `sum(f(i) for i in over)` to the objective |
-| `.constrain(f, over=, lower=, upper=)` | one row per index, `lower <= f(i) <= upper` |
+| `.add_var(n, start=, lower=, upper=)` | a block of variables; index it with `[i]` |
+| `.add_obj(f, over=)` | add `sum(f(i) for i in over)` to the objective |
+| `.add_con(f, over=, lower=, upper=)` | one row per index, `lower <= f(i) <= upper` |
 | `.solve(solver=)` | build and solve in one step |
 | `Model` | `.nvar` `.ncon` `.nnzj` `.nnzh` `.x0` `.objective(x)` `.gradient(x)` `.constraints(x)` |
 | `Solution` | `.status` `.objective` `.iterations` `.x` `.y` `.elapsed` `.success`, and `sol[x]` |
 
 Everything crossing the boundary is a Python scalar, a `range`, or a numpy array.
+
+## Indexing over data
+
+An index set can be a table rather than a range, with the fields available on the
+traced row. Columns holding positions of variables are declared, and stay 0-based
+like everything else:
+
+```python
+gen = exa.Records({"i": [...], "bus": [...], "cost1": [...]}, index=["i", "bus"])
+core.add_obj(lambda g: g.cost1 * pg[g.i]**2, over=gen)
+
+balance = core.add_con(lambda b: b.pd + b.gs * vm[b.i]**2, over=bus)
+core.add_con(balance, lambda a: (a.bus, p[a.i]), over=arc)     # add terms into rows
+```
+
+`examples/ac_opf.py` builds AC optimal power flow this way and solves the PGLib
+benchmark cases; `examples/matpower.py` reads the `.m` files, so the example needs
+nothing outside this package.
 
 ## Time to first solve
 

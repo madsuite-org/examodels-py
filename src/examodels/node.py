@@ -8,7 +8,7 @@ import numpy as _np
 
 from . import _bridge as _b
 
-__all__ = ["Node", "Block", "Expression", "Constant"]
+__all__ = ["Node", "Block", "Constraint", "Expression", "Records", "Constant"]
 
 _BINARY = {"add": "+", "sub": "-", "mul": "*", "truediv": "/"}
 
@@ -33,6 +33,12 @@ class Node:
     def __neg__(self):        return Node(_b.ops["-"](self._jl))
     def __pos__(self):        return self
     def __getitem__(self, i): return Node(_b.getidx(self._jl, _b.unwrap(i)))
+
+    def __getattr__(self, name):
+        """`row.field` inside a traced function — a lookup into the index set."""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return Node(_b.getfield_(self._jl, name))
 
     def __bool__(self):
         raise TypeError(
@@ -89,6 +95,21 @@ class Block:
         return f"<{self._kind} block of {self._n}>"
 
 
+class Constraint:
+    """A block of constraint rows. Pass it back to `add_con` to add terms to it."""
+
+    __slots__ = ("_jl", "_n")
+
+    def __init__(self, jlobj, n):
+        self._jl, self._n = jlobj, n
+
+    def __len__(self):
+        return self._n
+
+    def __repr__(self):
+        return f"<constraint block of {self._n}>"
+
+
 class Expression:
     """A reusable subexpression.
 
@@ -121,6 +142,42 @@ class Expression:
 
     def __repr__(self):
         return f"<subexpression {' x '.join(str(len(o)) for o in self._over)}>"
+
+
+class Records:
+    """A table of rows to index a model over, instead of a plain range.
+
+        arcs = Records({"bus": [...], "i": [...]}, index=["bus", "i"])
+        core.constrain(lambda a: p[a.i] - ..., over=arcs)
+
+    Columns named in `index` hold positions of variables; they are 0-based like
+    everything else here, and converted for the backend once, on the way in.
+    """
+
+    __slots__ = ("_jl", "_n", "_fields")
+
+    def __init__(self, columns, index=()):
+        import numpy as np
+        index = set(index)
+        names, cols, n = [], [], None
+        for name, values in columns.items():
+            a = np.asarray(values)
+            a = np.ascontiguousarray(a, dtype=np.int64) + 1 if name in index else \
+                np.ascontiguousarray(a, dtype=np.float64)
+            if n is None:
+                n = a.size
+            elif a.size != n:
+                raise ValueError(f"column {name!r} has {a.size} rows, expected {n}")
+            names.append(name)
+            cols.append(a)
+        self._jl = _b.mkrecords(names, cols)
+        self._n, self._fields = n, tuple(names)
+
+    def __len__(self):
+        return self._n
+
+    def __repr__(self):
+        return f"<Records {self._n} rows: {', '.join(self._fields)}>"
 
 
 def Constant(v):

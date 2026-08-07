@@ -21,8 +21,8 @@ def test_import_does_not_start_the_backend():
 
 def test_sizes_are_python_ints():
     core = exa.Core()
-    x = core.add_variables(5)
-    core.minimize(lambda i: x[i]**2, over=range(5))
+    x = core.add_var(5)
+    core.add_obj(lambda i: x[i]**2, over=range(5))
     p = exa.Model(core)
     for v in (p.nvar, p.ncon, p.nnzj, p.nnzh):
         assert type(v) is int
@@ -30,8 +30,8 @@ def test_sizes_are_python_ints():
 
 def test_arrays_are_numpy():
     core = exa.Core()
-    x = core.add_variables(4, start=1.0)
-    core.minimize(lambda i: x[i]**2, over=range(4))
+    x = core.add_var(4, start=1.0)
+    core.add_obj(lambda i: x[i]**2, over=range(4))
     p = exa.Model(core)
     assert isinstance(p.x0, np.ndarray) and p.x0.dtype == np.float64
     assert isinstance(p.gradient(np.ones(4)), np.ndarray)
@@ -40,7 +40,7 @@ def test_arrays_are_numpy():
 
 def test_unsupported_operation_raises_python_typeerror():
     core = exa.Core()
-    x = core.add_variables(3)
+    x = core.add_var(3)
     with pytest.raises(TypeError):
         exa.trace(lambda i: __import__("math").sin(x[i]))   # math.sin, not exa.sin
 
@@ -48,7 +48,7 @@ def test_unsupported_operation_raises_python_typeerror():
 def test_data_given_as_a_function_is_rejected_with_a_useful_message():
     core = exa.Core()
     with pytest.raises(TypeError, match="data"):
-        core.add_variables(3, start=lambda i: float(i))
+        core.add_var(3, start=lambda i: float(i))
 
 
 def test_no_julia_identifiers_in_public_surface():

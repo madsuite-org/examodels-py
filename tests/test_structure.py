@@ -11,7 +11,7 @@ N = 10
 def xvar():
     full_types(True)
     core = exa.Core()
-    return core.add_variables(N)
+    return core.add_var(N)
 
 
 def test_luksan_vlcek_objective(xvar):

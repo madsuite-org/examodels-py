@@ -3,8 +3,8 @@
     import examodels as exa
 
     core = exa.Core()
-    x = core.add_variables(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
-    core.minimize(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2, over=range(1, N))
+    x = core.add_var(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
+    core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2, over=range(1, N))
 
     model = exa.Model(core)
     sol = model.solve()
@@ -19,7 +19,7 @@ index; anything index-dependent belongs in the data (`start`, `lower`, `upper`,
 or the index set itself).
 """
 from .core import Core, backends, install_backend, trace
-from .node import Block, Constant, Expression, Node
+from .node import Block, Constant, Constraint, Expression, Node, Records
 from .model import Model, Solution
 from .solve import available_solvers, install_solver, solve
 from ._bridge import ModelError
@@ -27,7 +27,8 @@ from ._bridge import ModelError
 __version__ = "0.1.0"
 
 __all__ = [
-    "Core", "Model", "Solution", "Block", "Expression", "Node", "Constant",
+    "Core", "Model", "Solution", "Block", "Constraint", "Expression", "Records",
+    "Node", "Constant",
     "trace", "solve", "available_solvers", "install_solver",
     "backends", "install_backend", "ModelError", "__version__",
 ]
