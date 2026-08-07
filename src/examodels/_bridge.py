@@ -85,6 +85,8 @@ def _boot():
         typestr=jl.seval("x -> string(typeof(x))"),
         same_ty=jl.seval("(a, b) -> typeof(a) === typeof(b)"),
         getidx=jl.seval("(v, i) -> v[i]"),
+        getidxn=jl.seval("(v, is...) -> v[is...]"),
+        add_var_n=jl.seval("(c, ns...; kw...) -> ExaModels.add_var(c, ns...; kw...)"),
         # An index set must never round-trip through Python: a Julia range comes
         # back out as a Python `range` and returns as a StepRange, which several of
         # the backend's size and dispatch paths reject (get_lcon/get_ucon among

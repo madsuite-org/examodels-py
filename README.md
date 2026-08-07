@@ -123,6 +123,7 @@ handoff between CuPy arrays and device model arrays yet.
 |---|---|
 | `Model()` | start building |
 | `.add_var(n, start=, lower=, upper=)` | a block of variables; index it with `[i]` |
+| `.add_var((T, N), ...)` | a multi-dimensional block; index it with `[t, i]` |
 | `.add_obj(f, over=)` | add `sum(f(i) for i in over)` to the objective |
 | `.add_con(f, over=, lower=, upper=)` | one row per index, `lower <= f(i) <= upper` |
 | `.solve(solver=)` | build and solve in one step |
@@ -130,6 +131,19 @@ handoff between CuPy arrays and device model arrays yet.
 | `Solution` | `.status` `.objective` `.iterations` `.x` `.y` `.elapsed` `.success`, and `sol[x]` |
 
 Everything crossing the boundary is a Python scalar, a `range`, or a numpy array.
+
+## Several dimensions
+
+```python
+x = core.add_var((T, N), lower=np.zeros((T, N)))
+
+Cell = namedtuple("Cell", "t i")
+grid = exa.Records([Cell(t, i) for t in range(1, T) for i in range(N)], index=["t", "i"])
+core.add_con(x[c.t, c.i] - x[c.t - 1, c.i] for c in grid)
+```
+
+Bounds and starting points are given, and read back, in the shape you passed —
+the backend's own column-major storage never surfaces.
 
 ## Indexing over data
 

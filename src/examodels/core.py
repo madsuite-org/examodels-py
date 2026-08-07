@@ -171,14 +171,21 @@ class Core:
         return out
 
     # -- variables and parameters ---------------------------------------------
-    def add_var(self, n, start=0.0, lower=None, upper=None):
-        """A block of `n` decision variables; index it with `[i]`."""
+    def add_var(self, shape, start=0.0, lower=None, upper=None):
+        """A block of decision variables.
+
+            x = core.add_var(10)          # index as x[i]
+            y = core.add_var((T, N))      # index as y[t, i]
+
+        `start`, `lower` and `upper` are scalars or arrays of that shape.
+        """
+        dims = (shape,) if isinstance(shape, int) else tuple(shape)
         kw = {"start": _data(start, "start")}
         if lower is not None:
             kw["lvar"] = _data(lower, "lower")
         if upper is not None:
             kw["uvar"] = _data(upper, "upper")
-        return Block(self._add(_b.EM.add_var, n, **kw), n)
+        return Block(self._add(_b.add_var_n, *dims, **kw), dims)
 
     def add_par(self, values):
         """A block of parameters — fixed values usable in expressions, changeable

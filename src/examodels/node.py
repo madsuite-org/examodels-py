@@ -69,30 +69,58 @@ for _name, _op in _BINARY.items():
 
 
 class Block:
-    """A block of variables or parameters. Index it to reference one element."""
+    """A block of variables or parameters, of one or more dimensions.
 
-    __slots__ = ("_jl", "_n", "_kind")
+        x = core.add_var(10)          # x[i]
+        y = core.add_var((T, N))      # y[t, i]
+    """
 
-    def __init__(self, jlobj, n, kind="variable"):
-        self._jl, self._n, self._kind = jlobj, n, kind
+    __slots__ = ("_jl", "_shape", "_kind")
 
-    def __getitem__(self, i):
-        # This package is 0-based, the backend is 1-based. A concrete index is
-        # shifted here; a symbolic one is shifted once on the index set instead
-        # (see core._index_set), which keeps the traced expression identical to
-        # the one the backend builds for itself.
+    def __init__(self, jlobj, shape, kind="variable"):
+        self._jl = jlobj
+        self._shape = (shape,) if isinstance(shape, int) else tuple(shape)
+        self._kind = kind
+
+    @property
+    def shape(self):
+        return self._shape
+
+    def _axis(self, i, axis):
+        """0-based here, 1-based in the backend.
+
+        A concrete index is shifted here; a symbolic one is left alone, because the
+        index set it comes from has already been shifted (see core._index_set).
+        Doing both would double-count.
+        """
         if isinstance(i, (int, _np.integer)):
-            i = int(i)
-            if not -self._n <= i < self._n:
-                raise IndexError(f"index {i} is out of range for {self!r}")
-            return Node(_b.getidx(self._jl, i % self._n + 1))
-        return Node(_b.getidx(self._jl, _b.unwrap(i)))
+            i, n = int(i), self._shape[axis]
+            if not -n <= i < n:
+                raise IndexError(
+                    f"index {i} is out of range for axis {axis} of {self!r}")
+            return i % n + 1
+        return _b.unwrap(i)
+
+    def __getitem__(self, idx):
+        idx = idx if isinstance(idx, tuple) else (idx,)
+        if len(idx) != len(self._shape):
+            raise IndexError(
+                f"{self!r} takes {len(self._shape)} "
+                f"ind{'ices' if len(self._shape) > 1 else 'ex'}, got {len(idx)}")
+        shifted = [self._axis(i, k) for k, i in enumerate(idx)]
+        if len(shifted) == 1:
+            return Node(_b.getidx(self._jl, shifted[0]))
+        return Node(_b.getidxn(self._jl, *shifted))
 
     def __len__(self):
-        return self._n
+        n = 1
+        for d in self._shape:
+            n *= d
+        return n
 
     def __repr__(self):
-        return f"<{self._kind} block of {self._n}>"
+        dims = " x ".join(str(d) for d in self._shape)
+        return f"<{self._kind} block {dims}>"
 
 
 class Constraint:

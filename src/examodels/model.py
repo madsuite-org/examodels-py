@@ -95,14 +95,26 @@ class Model:
 ACCESSORS = ("value", "start", "lvar", "uvar", "lcon", "ucon")
 
 
+def _shape_of(handle):
+    shape = getattr(handle, "shape", None)
+    return shape if shape and len(shape) > 1 else None
+
+
 def _accessors(name):
     def get(self, handle):
-        return np.array(_b.tohost(_b.guard(getattr(_b.EM, f"get_{name}"), self._jl,
+        flat = np.array(_b.tohost(_b.guard(getattr(_b.EM, f"get_{name}"), self._jl,
                                            _b.unwrap(handle))), dtype=np.float64)
+        shape = _shape_of(handle)
+        # The backend stores a block column-major; give it back in the shape it was
+        # given in, so a value read out sits where the caller put it.
+        return flat.reshape(shape, order="F") if shape else flat
 
     def set(self, handle, values):
-        _b.guard(getattr(_b.EM, f"set_{name}_b"), self._jl, _b.unwrap(handle),
-                 np.ascontiguousarray(values, dtype=np.float64).ravel())
+        a = np.asarray(values, dtype=np.float64)
+        shape = _shape_of(handle)
+        flat = np.ascontiguousarray(a.reshape(shape, order="C").ravel(order="F")) \
+            if shape and a.shape == shape else np.ascontiguousarray(a).ravel()
+        _b.guard(getattr(_b.EM, f"set_{name}_b"), self._jl, _b.unwrap(handle), flat)
         return self
 
     get.__name__, set.__name__ = f"get_{name}", f"set_{name}"
@@ -150,8 +162,10 @@ class Solution:
         return self.status in self._SUCCESS
 
     def __getitem__(self, block):
-        return np.array(_b.tohost(_b.guard(_b.EM.solution, self._raw, block._jl)),
+        flat = np.array(_b.tohost(_b.guard(_b.EM.solution, self._raw, block._jl)),
                         dtype=np.float64)
+        shape = getattr(block, "shape", None)
+        return flat.reshape(shape, order="F") if shape and len(shape) > 1 else flat
 
     def __repr__(self):
         return (f"<Solution status={self.status!r} objective={self.objective:.6g} "
