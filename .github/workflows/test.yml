@@ -38,6 +38,11 @@ jobs:
 
       - run: pip install -e ".[test]"
 
+      # Solvers are optional dependencies, installed on request. Without one the
+      # suite would skip almost everything, so CI asks for it explicitly.
+      - name: install a solver
+        run: python -c "import examodels; examodels.install_solver('ipopt')"
+
       - name: which backend is under test
         run: python -c "from examodels import _bridge as b; print(b.version, b.seval('pathof(ExaModels)'))"
 
@@ -59,6 +64,7 @@ jobs:
             .venv/julia_env
           key: julia-examples-${{ hashFiles('src/examodels/juliapkg.json') }}
       - run: pip install -e ".[test]"
+      - run: python -c "import examodels; examodels.install_solver('ipopt')"
       - run: pytest tests/test_examples.py -q
 
   interface:
@@ -78,6 +84,7 @@ jobs:
             .venv/julia_env
           key: julia-interface-${{ hashFiles('src/examodels/juliapkg.json') }}
       - run: pip install -e ".[test]"
+      - run: python -c "import examodels; examodels.install_solver('ipopt')"
       - run: pytest tests/test_parity.py tests/test_dependencies.py -q -s
 
   lint:

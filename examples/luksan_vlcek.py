@@ -6,26 +6,32 @@
 """
 import examodels as exa
 
-N = 10
 
-core = exa.Core()
-x = core.add_var(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
+def main():
+    N = 10
 
-core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
-           over=range(1, N))
+    core = exa.Core()
+    x = core.add_var(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
 
-core.add_con(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
-            + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
-            + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
-            over=range(0, N - 2), lcon=0.0, ucon=0.0)
+    core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
+               over=range(1, N))
 
-model = exa.Model(core)
-print(model)
+    core.add_con(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
+                + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
+                + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
+                over=range(0, N - 2), lcon=0.0, ucon=0.0)
 
-sol = model.solve(solver="ipopt")
-print(f"status     : {sol.status}")
-print(f"objective  : {sol.objective:.10f}")
-print(f"iterations : {sol.iterations}")
-print(f"solve time : {sol.elapsed:.3f} s")
-print(f"x          : {sol[x]}")
-print(f"max |c(x)| : {abs(model.constraints(sol.x)).max():.2e}")
+    model = exa.Model(core)
+    print(model)
+
+    sol = model.solve(solver="ipopt")
+    print(f"status     : {sol.status}")
+    print(f"objective  : {sol.objective:.10f}")
+    print(f"iterations : {sol.iterations}")
+    print(f"solve time : {sol.elapsed:.3f} s")
+    print(f"x          : {sol[x]}")
+    print(f"max |c(x)| : {abs(model.constraints(sol.x)).max():.2e}")
+
+
+if __name__ == "__main__":
+    main()
