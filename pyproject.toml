@@ -13,6 +13,8 @@ dependencies = ["juliacall>=0.9.20", "numpy>=1.23"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+# Only for sharing device memory with CuPy; imported lazily, never on the CPU path.
+cuda = ["cupy-cuda12x>=13"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

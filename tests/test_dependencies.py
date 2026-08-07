@@ -42,12 +42,18 @@ def test_startup_check_is_not_vacuous():
 
 
 def test_python_dependencies_are_only_what_we_declare():
-    """Nothing may creep in beyond numpy and juliacall."""
+    """Required dependencies stay at two; anything else must be an optional extra."""
     import tomllib
     declared = tomllib.loads((ROOT.parents[1] / "pyproject.toml").read_text())
-    names = {d.split(">=")[0].split("[")[0].strip()
-             for d in declared["project"]["dependencies"]}
-    assert names == {"juliacall", "numpy"}, names
+
+    def names_of(entries):
+        return {d.split(">=")[0].split("[")[0].split("-cuda")[0].strip()
+                for d in entries}
+
+    required = names_of(declared["project"]["dependencies"])
+    assert required == {"juliacall", "numpy"}, required
+    optional = set().union(*(names_of(v) for v in
+                             declared["project"]["optional-dependencies"].values()))
 
     imported = set()
     for f in ROOT.glob("*.py"):
@@ -56,9 +62,10 @@ def test_python_dependencies_are_only_what_we_declare():
             if line.startswith(("import ", "from ")) and not line.split()[1].startswith("."):
                 imported.add(line.split()[1].split(".")[0])
     stdlib = set(sys.stdlib_module_names)
+    allowed = required | optional | {"juliapkg"}
     third_party = imported - stdlib - {"examodels"}
-    assert third_party <= {"numpy", "juliacall", "juliapkg"}, \
-        f"undeclared third-party imports: {third_party - {'numpy', 'juliacall', 'juliapkg'}}"
+    assert third_party <= allowed, \
+        f"undeclared third-party imports: {sorted(third_party - allowed)}"
 
 
 def test_backend_requirements_are_declared_in_one_place():
