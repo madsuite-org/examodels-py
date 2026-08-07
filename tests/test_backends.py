@@ -43,15 +43,35 @@ def _luksan(n, backend):
     return exa.Model(core), x
 
 
-def _has_cuda():
+def _gpu_hardware_present():
+    """Is there a GPU on this machine at all?"""
     try:
-        exa.Core(backend="cuda")
-        return True
-    except Exception:                                       # noqa: BLE001
+        return subprocess.run(["nvidia-smi", "-L"], capture_output=True,
+                              timeout=30).returncode == 0
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
-cuda_only = pytest.mark.skipif(not _has_cuda(), reason="no CUDA backend in this environment")
+def _cuda_backend_works():
+    try:
+        exa.Core(backend="cuda")
+        return True, ""
+    except Exception as e:                                  # noqa: BLE001
+        return False, str(e).splitlines()[0]
+
+
+_HW = _gpu_hardware_present()
+_OK, _WHY = _cuda_backend_works() if _HW else (False, "")
+
+# Skipping only because there is no hardware. If a GPU IS present and the backend
+# still will not load, that is a regression and must fail -- a skip here would be a
+# silent pass exactly where the coverage matters. (This is how the system-image
+# regression was found: it turned these tests from passing into skipped.)
+if _HW and not _OK:
+    def test_cuda_backend_is_broken_despite_gpu_hardware():
+        pytest.fail(f"a GPU is present but the cuda backend will not load: {_WHY}")
+
+cuda_only = pytest.mark.skipif(not _HW, reason="no GPU hardware on this machine")
 
 
 @cuda_only

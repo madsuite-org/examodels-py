@@ -39,15 +39,6 @@ def _configure_runtime():
     """
     import os
     os.environ.setdefault("PYTHON_JULIACALL_STARTUPFILE", "no")
-    if os.environ.get("PYTHON_JULIACALL_SYSIMAGE"):
-        return
-    try:
-        from .sysimage import path
-        img = path()
-    except Exception:                                        # noqa: BLE001
-        return
-    if img.is_file():
-        os.environ["PYTHON_JULIACALL_SYSIMAGE"] = str(img)
 
 
 def _satisfies(version, bound):

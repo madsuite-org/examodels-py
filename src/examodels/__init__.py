@@ -23,19 +23,17 @@ from .node import Block, Constant, Expression, Node
 from .model import Model, Solution
 from .solve import available_solvers, install_solver, solve
 from ._bridge import ModelError
-from . import sysimage
 
 __version__ = "0.1.0"
 
 __all__ = [
     "Core", "Model", "Solution", "Block", "Expression", "Node", "Constant",
     "trace", "solve", "available_solvers", "install_solver",
-    "backends", "install_backend", "sysimage", "ModelError", "__version__",
+    "backends", "install_backend", "ModelError", "__version__",
 ]
 
 
-_SUBMODULES = frozenset({"ops", "core", "node", "model", "solve", "testing",
-                         "sysimage", "_bridge"})
+_SUBMODULES = frozenset({"ops", "core", "node", "model", "solve", "testing", "_bridge"})
 
 
 def __getattr__(name):
