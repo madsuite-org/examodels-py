@@ -179,17 +179,47 @@ class Core:
     `Model(core)` finishes it; `core.solve()` is shorthand for both steps.
     """
 
+    #: set by TwoStageCore; a plain core has none
+    nscen = 0
+
     def __init__(self, backend=None):
         resolved = _backend(backend)
         kw = {"backend": resolved} if resolved is not None else {}
         self._core = _b.guard(_b.EM.ExaCore, concrete=_b.valtrue, **kw)
+        self._named = {}
 
     def _add(self, fn, *args, **kwargs):
         self._core, out = _b.guard(fn, self._core, *args, **kwargs)
         return out
 
+    def _named_kw(self, name, kw):
+        """`name=` registers the block with the backend and here."""
+        if name is not None:
+            kw["name"] = _b.val_symbol(str(name))
+        return kw
+
+    def _remember(self, name, handle):
+        if name is not None:
+            self._named.setdefault("", None)
+            self._named[str(name)] = handle
+        return handle
+
+    def __getattr__(self, name):
+        """`core.x` — whatever was added with `name="x"`."""
+        named = self.__dict__.get("_named")
+        if named and name in named:
+            return named[name]
+        raise AttributeError(f"{type(self).__name__!r} has no attribute {name!r}")
+
     # -- variables and parameters ---------------------------------------------
-    def add_var(self, *dims, start=0.0, lvar=None, uvar=None):
+    def _scen(self, args):
+        """Strip a leading EachScenario() marker; return (marker_or_None, rest)."""
+        from .advanced import EachScenario
+        if args and isinstance(args[0], EachScenario):
+            return _b.each_scenario, args[1:]
+        return None, args
+
+    def add_var(self, *dims, start=0.0, lvar=None, uvar=None, tag=None, name=None):
         """A block of decision variables, one dimension per argument.
 
             x = core.add_var(10)        # index as x[i]
@@ -197,6 +227,7 @@ class Core:
 
         `start`, `lvar` and `uvar` are scalars or arrays of that shape.
         """
+        scen, dims = self._scen(dims)
         if len(dims) == 1 and (isinstance(dims[0], types.GeneratorType)
                                or callable(dims[0])):
             return self._defined_var(dims[0], start, lvar, uvar)
@@ -223,7 +254,19 @@ class Core:
             kw["lvar"] = _data(lvar, "lvar")
         if uvar is not None:
             kw["uvar"] = _data(uvar, "uvar")
-        return Block(self._add(_b.add_var_dims, los, his, **kw), tuple(axes))
+        if tag is not None:
+            kw["tag"] = _b.unwrap(tag)
+        self._named_kw(name, kw)
+        if scen is None:
+            return self._remember(
+                name, Block(self._add(_b.add_var_dims, los, his, **kw), tuple(axes)))
+        # A per-scenario declaration is replicated by the backend, so the block
+        # really holds nscen times what was asked for. Index it flat.
+        per = 1
+        for a in axes:
+            per *= len(a)
+        blk = self._add(_b.add_var_scen, scen, los, his, **kw)
+        return self._remember(name, Block(blk, (range(per * self.nscen),)))
 
     def _defined_var(self, f, start, lvar, uvar):
         """`add_var(expr for i in over)` — variables tied to those expressions.
@@ -238,35 +281,43 @@ class Core:
         self.add_con(lambda i: block[i] - f(i), over=over)
         return block
 
-    def add_par(self, values):
+    def add_par(self, values, name=None):
         """A block of parameters — fixed values usable in expressions, changeable
         afterwards with `Model.set_parameters` without rebuilding."""
         arr = np.ascontiguousarray(values, dtype=np.float64).ravel()
-        return Block(self._add(_b.add_par_range, 0, arr.size - 1, arr),
-                     arr.size, "parameter")
+        kw = self._named_kw(name, {})
+        return self._remember(name, Block(
+            self._add(_b.add_par_range, 0, arr.size - 1, arr, **kw),
+            arr.size, "parameter"))
 
     # -- subexpressions -------------------------------------------------------
-    def add_expr(self, f, over=None):
+    def add_expr(self, f, over=None, name=None):
         """Name a reusable subexpression. Inlined at each use, so it adds no
         variables and no constraints. `over` may be a tuple for `s[t, i]`."""
         f, over = _as_function(f, over)
-        return Expression(f, over)
+        return self._remember(name, Expression(f, over))
 
     # -- objective and constraints --------------------------------------------
-    def add_obj(self, f, over=None):
+    def add_obj(self, f, over=None, name=None):
         """Add `sum(f(i) for i in over)` to the objective.
 
         Write it either way:  `add_obj(x[i]**2 for i in range(n))`
         or                    `add_obj(lambda i: x[i]**2, over=range(n))`.
         """
+        from .advanced import Oracle
+        if isinstance(f, Oracle):
+            self._core = _b.guard(_b.register_obj_oracle, self._core, f._jl)
+            return self
         f, over = _as_function(f, over)
         over = range(1) if over is None else over
         args, _ = _index_set(over)
         fn = _b.obj_range if len(args) == 2 else _b.obj_iter
-        self._core, _ = _b.guard(fn, self._core, _b.unwrap(_node(f, over)), *args)
+        kw = self._named_kw(name, {})
+        self._core, obj = _b.guard(fn, self._core, _b.unwrap(_node(f, over)), *args, **kw)
+        self._remember(name, obj)
         return self
 
-    def add_con(self, *args, over=None, lcon=0.0, ucon=0.0):
+    def add_con(self, *args, over=None, lcon=0.0, ucon=0.0, name=None):
         """Add constraints, or add terms to constraints already added.
 
             core.add_con(x[i] + x[i+1] for i in range(n - 1))
@@ -281,6 +332,21 @@ class Core:
         generator at a bus -- without materialising a sum per row. It mirrors the
         backend's `add_con` / `add_con!` pair.
         """
+        from .advanced import Oracle
+        if args and isinstance(args[0], Oracle):
+            self._core = _b.guard(_b.register_con_oracle, self._core, args[0]._jl)
+            return args[0]
+        scen, args = self._scen(args)
+        if scen is not None:
+            kwargs = dict(lcon=_data(lcon, "lcon"), ucon=_data(ucon, "ucon"))
+            f, *rest = args
+            f, over = _as_function(f, rest[0] if rest else over)
+            iters, _ = _index_set(over)
+            gen = _b.gen_range(_b.unwrap(_node(f, over)), *iters) if len(iters) == 2 \
+                else _b.gen_iter(_b.unwrap(_node(f, over)), *iters)
+            con = self._add(_b.add_con_scen, scen, gen, **kwargs)
+            start = over.start if isinstance(over, range) else 0
+            return Constraint(con, len(over), 1 - start)
         if args and all(isinstance(a, (int, range)) for a in args):
             # dimensions only: an empty block, to be filled with add_con(handle, ...)
             axes = [range(d) if isinstance(d, int) else d for d in args]
@@ -302,14 +368,14 @@ class Core:
         # its own MathOptInterface backend uses.
         node = _b.unwrap(_node(f, over))
         gen = _b.gen_range(node, *args) if len(args) == 2 else _b.gen_iter(node, *args)
-        con = self._add(_b.EM.add_con, gen,
-                        lcon=_data(lcon, "lcon"), ucon=_data(ucon, "ucon"))
+        con = self._add(_b.EM.add_con, gen, **self._named_kw(name, dict(
+            lcon=_data(lcon, "lcon"), ucon=_data(ucon, "ucon"))))
         # Rows are addressed by the index that produced them, but the backend
         # numbers a constraint block's rows from 1 whatever the index set was (it
         # takes their count, not their labels). So the label has to be mapped back
         # to a position: an index set starting at `a` puts label `a` in row 1.
         start = over.start if isinstance(over, range) else 0
-        return Constraint(con, len(over), 1 - start)
+        return self._remember(name, Constraint(con, len(over), 1 - start))
 
     def _augment(self, constraint, f, over):
         f, over = _as_function(f, over)
@@ -328,7 +394,7 @@ class Core:
         from .model import Model
         return Model(self)
 
-    def solve(self, solver="ipopt", **options):
+    def solve(self, solver=None, **options):
         return self.build().solve(solver=solver, **options)
 
     def __repr__(self):

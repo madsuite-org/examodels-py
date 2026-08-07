@@ -26,11 +26,18 @@ class Model:
 
     def __init__(self, core):
         from .core import Core
-        self._jl = _b.guard(_b.EM.ExaModel, core._core) if isinstance(core, Core) else core
+        if isinstance(core, Core):
+            self._jl = _b.guard(_b.EM.ExaModel, core._core)
+            self._named = dict(getattr(core, "_named", {}))
+        else:
+            self._jl, self._named = core, {}
 
     def __getattr__(self, name):
         if name.startswith("_"):
             raise AttributeError(name)
+        named = self.__dict__.get("_named")
+        if named and name in named:                  # `model.x` -> the named block
+            return named[name]
         try:
             v = getattr(self._jl.meta, name)
         except AttributeError:
@@ -46,7 +53,14 @@ class Model:
         return float(_b.guard(_b.EM.obj, self._jl, self._x(x)))
 
     def _x(self, x):
-        """Primal vector, placed wherever this model's arrays live."""
+        """Primal vector, placed wherever this model's arrays live.
+
+        A device array is used where it already is, rather than copied to the host
+        and back.
+        """
+        if hasattr(x, "__cuda_array_interface__"):
+            from .advanced import from_cupy
+            return from_cupy(x)
         return _b.upload(self._jl, np.ascontiguousarray(x, dtype=np.float64))
 
     def gradient(self, x):
@@ -81,7 +95,7 @@ class Model:
                  np.asarray(values, dtype=np.float64).ravel())
         return self
 
-    def solve(self, solver="ipopt", **options):
+    def solve(self, solver=None, **options):
         from .solve import solve
         return solve(self, solver=solver, **options)
 
@@ -104,17 +118,25 @@ def _accessors(name):
     def get(self, handle):
         flat = np.array(_b.tohost(_b.guard(getattr(_b.EM, f"get_{name}"), self._jl,
                                            _b.unwrap(handle))), dtype=np.float64)
-        shape = _shape_of(handle)
+        shape = getattr(handle, "shape", None)
         # The backend stores a block column-major; give it back in the shape it was
         # given in, so a value read out sits where the caller put it.
         return flat.reshape(shape, order="F") if shape else flat
 
     def set(self, handle, values):
+        if hasattr(values, "__cuda_array_interface__"):
+            from .advanced import from_cupy
+            _b.guard(getattr(_b.EM, f"set_{name}_b"), self._jl, _b.unwrap(handle),
+                     from_cupy(values))
+            return self
         a = np.asarray(values, dtype=np.float64)
         shape = _shape_of(handle)
         flat = np.ascontiguousarray(a.reshape(shape, order="C").ravel(order="F")) \
             if shape and a.shape == shape else np.ascontiguousarray(a).ravel()
-        _b.guard(getattr(_b.EM, f"set_{name}_b"), self._jl, _b.unwrap(handle), flat)
+        # Place the values where the model's arrays live: writing a host array
+        # into device memory falls into a scalar path the backend disallows.
+        _b.guard(getattr(_b.EM, f"set_{name}_b"), self._jl, _b.unwrap(handle),
+                 _b.upload(self._jl, flat))
         return self
 
     get.__name__, set.__name__ = f"get_{name}", f"set_{name}"
@@ -176,10 +198,10 @@ class Solution:
         return self._block(_b.EM.multipliers_U, block)
 
     def _block(self, fn, handle):
-        flat = np.array(_b.tohost(_b.guard(fn, self._raw, _b.unwrap(handle))),
-                        dtype=np.float64)
+        got = np.array(_b.tohost(_b.guard(fn, self._raw, _b.unwrap(handle))),
+                       dtype=np.float64)
         shape = getattr(handle, "shape", None)
-        return flat.reshape(shape, order="F") if shape and len(shape) > 1 else flat
+        return got.reshape(shape, order="F") if shape else got
 
     def __getitem__(self, block):
         """`sol[x]` — the solution values of a variable block."""

@@ -65,6 +65,12 @@ def solution(result, block):
 from .model import Model, Solution
 from .solve import available_solvers, install_solver, solve
 from ._bridge import ModelError
+from .advanced import (as_cupy, from_cupy, CompressedNLPModel, EachScenario, FirstStageConstraintTag,
+                       OracleEvaluator, ScalarNonlinearOracle, VectorNonlinearOracle,
+                       add_eval, embed_oracle, has_matfree_jac, has_matfree_hess,
+                       FirstStageTag, SecondStageConstraintTag, SecondStageTag,
+                       TimedNLPModel, TwoStageCore, WrapperNLPModel,
+                       get_con_scen, get_nscen, get_var_scen, new_tag, timings)
 
 __version__ = "0.1.0"
 
@@ -74,10 +80,18 @@ __all__ = [
     "trace", "available_solvers", "install_solver", "solution",
     *_CORE_FUNCTIONS, *_MODEL_FUNCTIONS, *_RESULT_FUNCTIONS,
     "backends", "install_backend", "ModelError", "__version__",
+    "WrapperNLPModel", "TimedNLPModel", "CompressedNLPModel", "timings",
+    "as_cupy", "from_cupy",
+    "TwoStageCore", "EachScenario", "get_nscen", "get_var_scen", "get_con_scen",
+    "VectorNonlinearOracle", "ScalarNonlinearOracle", "OracleEvaluator",
+    "has_matfree_jac", "has_matfree_hess", "add_eval", "embed_oracle",
+    "new_tag", "FirstStageTag", "SecondStageTag",
+    "FirstStageConstraintTag", "SecondStageConstraintTag",
 ]
 
 
-_SUBMODULES = frozenset({"ops", "core", "node", "model", "solve", "testing", "_bridge"})
+_SUBMODULES = frozenset({"ops", "core", "node", "model", "solve", "testing",
+                         "advanced", "_bridge"})
 
 
 def __getattr__(name):

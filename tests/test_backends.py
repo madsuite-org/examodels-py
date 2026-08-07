@@ -3,6 +3,7 @@ import subprocess
 import sys
 import textwrap
 
+import numpy as np
 import pytest
 
 import examodels as exa
@@ -91,3 +92,54 @@ def test_gpu_and_cpu_reach_the_same_solution():
     # different linear solvers, so they stop at slightly different points
     assert sg.objective == pytest.approx(sc.objective, rel=1e-3)
     assert abs(sg[xg] - sc[xc]).max() < 1e-3
+
+
+@cuda_only
+def test_a_device_model_picks_a_device_solver():
+    """Ipopt cannot take device arrays, so a device model must not be sent to it."""
+    core = exa.Core(backend="cuda")
+    x = exa.add_var(core, 20, start=1.0)
+    exa.add_obj(core, lambda i: (x[i] - 2.0)**2, over=range(20))
+    sol = exa.Model(core).solve()                    # no solver= given
+    assert sol.success and sol.status == "SOLVE_SUCCEEDED"
+
+
+@cuda_only
+def test_setters_work_on_a_device_model():
+    """Values must be placed on the device; a host array hits a scalar path."""
+    core = exa.Core(backend="cuda")
+    th = exa.add_par(core, [2.0])
+    x = exa.add_var(core, 10, start=1.0)
+    exa.add_obj(core, lambda i: (x[i] - th[0])**2, over=range(10))
+    model = exa.Model(core)
+    np.testing.assert_allclose(model.solve()[x], 2.0, atol=1e-6)
+    model.set_value(th, [3.0])
+    np.testing.assert_allclose(model.solve()[x], 3.0, atol=1e-6)
+    model.set_start(x, np.full(10, 9.0))
+    np.testing.assert_allclose(model.get_start(x), 9.0)
+
+
+@cuda_only
+def test_wrappers_work_on_a_device_model():
+    core = exa.Core(backend="cuda")
+    x = exa.add_var(core, 20, start=1.0)
+    exa.add_obj(core, lambda i: x[i]**2, over=range(20))
+    exa.add_con(core, lambda i: x[i] + x[i + 1], over=range(19), lcon=1.0, ucon=3.0)
+    model = exa.Model(core)
+    for wrap in (exa.WrapperNLPModel, exa.TimedNLPModel, exa.CompressedNLPModel):
+        w = wrap(model)
+        assert (w.nvar, w.ncon) == (20, 19)
+
+
+@cuda_only
+def test_compressed_wrapper_needs_constraints_upstream():
+    """Known backend limitation, recorded so a fix upstream shows up here.
+
+    `CompressedNLPModel` divides by the constraint count, so a model with none
+    raises. Nothing to do about it from this side.
+    """
+    core = exa.Core(backend="cuda")
+    x = exa.add_var(core, 5, start=1.0)
+    exa.add_obj(core, lambda i: x[i]**2, over=range(5))
+    with pytest.raises(exa.ModelError, match="DivideError"):
+        exa.CompressedNLPModel(exa.Model(core))

@@ -59,22 +59,36 @@ SURFACE = {
     "@register_bivariate": (JULIA, "registering an operator needs a Julia function"),
     # -- the backend's own deprecated API ------------------------------------
     **{n: (LEGACY, "deprecated in the backend (deprecated.jl)")
-       for n in ("LegacyExaCore", "variable", "parameter", "objective",
-                 "constraint", "constraint!", "subexpr")},
+       for n in ("LegacyExaCore", "variable", "parameter", "constraint!", "subexpr")},
     "ExaModels": (INTERNAL, "the module itself"),
-    # -- not exposed yet -----------------------------------------------------
-    **{n: (ABSENT, "nonlinear oracles")
-       for n in ("VectorNonlinearOracle", "ScalarNonlinearOracle", "OracleEvaluator",
-                 "ExaModelWithOracle", "embed_oracle", "add_eval",
-                 "has_matfree_jac", "has_matfree_hess")},
-    **{n: (ABSENT, "two-stage stochastic models")
-       for n in ("TwoStageExaCore", "TwoStageExaModel", "EachScenario", "get_nscen",
-                 "get_var_scen", "get_con_scen", "SecondStageVariable")},
-    **{n: (ABSENT, "variable and constraint tags")
-       for n in ("AbstractVariableTag", "AbstractConstraintTag", "FirstStageTag",
-                 "SecondStageTag", "FirstStageConstraintTag", "SecondStageConstraintTag")},
-    **{n: (ABSENT, "NLPModel wrappers")
-       for n in ("CompressedNLPModel", "TimedNLPModel", "WrapperNLPModel")},
+    # -- nonlinear oracles ---------------------------------------------------
+    "VectorNonlinearOracle": (SUPPORTED, "exa.VectorNonlinearOracle"),
+    "ScalarNonlinearOracle": (SUPPORTED, "exa.ScalarNonlinearOracle"),
+    "OracleEvaluator": (SUPPORTED, "exa.OracleEvaluator"),
+    "ExaModelWithOracle": (SUPPORTED, "built by Model(core) when an oracle is present"),
+    "embed_oracle": (SUPPORTED, "exa.embed_oracle"),
+    "add_eval": (SUPPORTED, "exa.add_eval"),
+    "has_matfree_jac": (SUPPORTED, "exa.has_matfree_jac"),
+    "has_matfree_hess": (SUPPORTED, "exa.has_matfree_hess"),
+    "constraint": (SUPPORTED, "add_con(core, oracle) — the oracle registration point"),
+    "objective": (SUPPORTED, "add_obj(core, oracle) — the oracle registration point"),
+    # -- two-stage stochastic models -----------------------------------------
+    "TwoStageExaCore": (SUPPORTED, "exa.TwoStageCore"),
+    "TwoStageExaModel": (SUPPORTED, "Model(TwoStageCore(...))"),
+    "EachScenario": (SUPPORTED, "exa.EachScenario"),
+    "get_nscen": (SUPPORTED, "exa.get_nscen"),
+    "get_var_scen": (SUPPORTED, "exa.get_var_scen"),
+    "get_con_scen": (SUPPORTED, "exa.get_con_scen"),
+    "SecondStageVariable": (SUPPORTED, "a block declared with EachScenario()"),
+    # -- tags -----------------------------------------------------------------
+    "AbstractVariableTag": (SUPPORTED, "exa.new_tag(name, 'variable')"),
+    "AbstractConstraintTag": (SUPPORTED, "exa.new_tag(name, 'constraint')"),
+    **{n: (SUPPORTED, f"exa.{n}()") for n in
+       ("FirstStageTag", "SecondStageTag",
+        "FirstStageConstraintTag", "SecondStageConstraintTag")},
+    # -- NLPModel wrappers ----------------------------------------------------
+    **{n: (SUPPORTED, f"exa.{n}") for n in
+       ("CompressedNLPModel", "TimedNLPModel", "WrapperNLPModel")},
 }
 
 
@@ -111,7 +125,7 @@ def test_coverage_summary(capsys):
         - len(counts.get(INTERNAL, []))
     with capsys.disabled():
         print(f"    -> {reachable} of {in_scope} in-scope exports reachable from Python")
-    assert reachable >= 37, reachable
+    assert reachable == in_scope, (reachable, in_scope)
 
 
 def test_every_supported_export_works():

@@ -31,8 +31,14 @@ def _lookup(name):
         raise ValueError(f"unknown solver {name!r}; available: {available_solvers()}") from None
 
 
-def solve(model, solver="ipopt", print_level=0, **options):
-    """Solve `model`, returning a `Solution`. Extra keywords go to the solver."""
+def solve(model, solver=None, print_level=0, **options):
+    """Solve `model`, returning a `Solution`. Extra keywords go to the solver.
+
+    Without `solver=`, one is chosen by where the model's arrays live: Ipopt cannot
+    take device arrays, so a model built on an accelerator goes to MadNLP.
+    """
+    if solver is None:
+        solver = "madnlp" if _on_device(model) else "ipopt"
     pkg, _uuid, entry = _lookup(solver)
     if solver not in _loaded:
         try:

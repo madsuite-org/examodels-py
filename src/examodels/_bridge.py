@@ -91,10 +91,45 @@ def _boot():
         # backend's size machinery rejects.
         # A parameter block is declared with an explicit 0-based range for the same
         # reason variables are: an array-shaped dimension would be 1-based.
-        add_par_range=jl.seval("(c, lo, hi, vals) -> ExaModels.add_par(c, "
-                               "UnitRange(Int(lo), Int(hi)); value = vals)"),
+        add_par_range=jl.seval("(c, lo, hi, vals; kw...) -> ExaModels.add_par(c, "
+                               "UnitRange(Int(lo), Int(hi)); value = vals, kw...)"),
         con_dims=jl.seval("(c, los, his; kw...) -> ExaModels.add_con(c, "
                           "(UnitRange(Int(l), Int(h)) for (l, h) in zip(los, his))...; kw...)"),
+        # The oracle constructors take bang-named keywords, which are not Python
+        # identifiers, so they are passed positionally and named here.
+        vector_oracle=jl.seval("""(nvar, ncon, jr, jc, hr, hc, lcon, ucon,
+                                   f, jac, hess, jvp, vjp, hvp, adapt) ->
+            ExaModels.VectorNonlinearOracle(; nvar, ncon,
+                jac_rows = Int[jr...], jac_cols = Int[jc...],
+                hess_rows = Int[hr...], hess_cols = Int[hc...],
+                lcon, ucon, f! = f, jac! = jac, hess! = hess,
+                jvp! = jvp, vjp! = vjp, hvp! = hvp,
+                adapt = adapt ? Val(true) : Val(false))"""),
+        # The objective callback must hand back a Float64; a Python function
+        # returns a Py, which the backend cannot convert.
+        scalar_oracle=jl.seval("""(nvar, f, grad, hvp, hr, hc, adapt) ->
+            ExaModels.ScalarNonlinearOracle(; nvar,
+                f = x -> pyconvert(Float64, f(x)), grad! = grad, hvp! = hvp,
+                hess_rows = Int[hr...], hess_cols = Int[hc...],
+                adapt = adapt ? Val(true) : Val(false))"""),
+        register_con_oracle=jl.seval("(c, o) -> ExaModels.constraint(c, o)"),
+        register_obj_oracle=jl.seval("(c, o) -> ExaModels.objective(c, o)"),
+        # Device-memory interchange. A device array's pointer, length and element
+        # type are all that CUDA's array interface needs, and wrapping a foreign
+        # pointer gives a view without a host round-trip.
+        device_info=jl.seval("""a -> (UInt64(UInt(pointer(a))), Int64(length(a)),
+                                      sizeof(eltype(a)) == 8 ? "<f8" : "<f4")"""),
+        wrap_device_ptr=jl.seval("""(p, n) -> begin
+            @eval Main using CUDA
+            Base.invokelatest(Main.CUDA.unsafe_wrap, Main.CUDA.CuArray,
+                              reinterpret(Main.CUDA.CuPtr{Float64}, UInt(p)), Int(n))
+        end"""),
+        is_device=jl.seval("a -> !(a isa Array)"),
+        val_symbol=jl.seval("s -> Val(Symbol(s))"),
+        each_scenario=jl.seval("ExaModels.EachScenario()"),
+        add_var_scen=jl.seval("(c, sc, los, his; kw...) -> ExaModels.add_var(c, sc, "
+                              "(UnitRange(Int(l), Int(h)) for (l, h) in zip(los, his))...; kw...)"),
+        add_con_scen=jl.seval("(c, sc, gen; kw...) -> ExaModels.add_con(c, sc, gen; kw...)"),
         add_var_dims=jl.seval("(c, los, his; kw...) -> ExaModels.add_var(c, "
                               "(UnitRange(Int(l), Int(h)) for (l, h) in zip(los, his))...; kw...)"),
         # An index set must never round-trip through Python: a Julia range comes
@@ -111,8 +146,8 @@ def _boot():
         # what makes the block multi-dimensional rather than merely flattened.
         product=jl.seval("(los, his) -> collect(Iterators.product("
                          "(UnitRange(Int(l), Int(h)) for (l, h) in zip(los, his))...))"),
-        obj_range=jl.seval("(c, e, a, b) -> ExaModels.add_obj(c, e, UnitRange(a, b))"),
-        obj_iter=jl.seval("(c, e, itr) -> ExaModels.add_obj(c, e, itr)"),
+        obj_range=jl.seval("(c, e, a, b; kw...) -> ExaModels.add_obj(c, e, UnitRange(a, b); kw...)"),
+        obj_iter=jl.seval("(c, e, itr; kw...) -> ExaModels.add_obj(c, e, itr; kw...)"),
         getfield_=jl.seval("(n, s) -> getproperty(n, Symbol(s))"),
         int_vector=jl.seval("v -> Int64[Int(i) for i in v]"),
         exa_sum=jl.seval("ns -> ExaModels.SumNode(Tuple(ns))"),
