@@ -32,11 +32,11 @@ def test_generator_and_function_agree_with_the_backend():
 def _luksan(core, x, generator):
     if generator:
         core.add_obj(100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2 for i in range(1, N))
-        core.add_con((x[i] + x[i+1] for i in range(N - 1)), lower=-5.0, upper=5.0)
+        core.add_con((x[i] + x[i+1] for i in range(N - 1)), lcon=-5.0, ucon=5.0)
     else:
         core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
                      over=range(1, N))
-        core.add_con(lambda i: x[i] + x[i+1], over=range(N - 1), lower=-5.0, upper=5.0)
+        core.add_con(lambda i: x[i] + x[i+1], over=range(N - 1), lcon=-5.0, ucon=5.0)
     return exa.Model(core)
 
 

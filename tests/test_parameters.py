@@ -18,7 +18,7 @@ def parametric_model():
     core.add_con(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
                 + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
                 + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
-                over=range(0, N - 2), lower=0.0, upper=0.0)
+                over=range(0, N - 2), lcon=0.0, ucon=0.0)
     return core, x, th
 
 
@@ -28,7 +28,7 @@ def test_parametric_expression_matches_julia():
     x = core.add_var(N)
     got = exa.trace(lambda i: th[0] * (x[i-1]**2 - x[i])**2 + (x[i-1] - th[1])**2)
     want = reference_trace(
-        x, "th[1] * (x[i-1]^2 - x[i])^2 + (x[i-1] - th[2])^2 for i = 2:10", th=th)
+        x, "th[0] * (x[i-1]^2 - x[i])^2 + (x[i-1] - th[1])^2 for i = 1:9", th=th)
     assert same_structure(got, want), f"\n got: {got.julia_type}\nwant: {want.julia_type}"
 
 

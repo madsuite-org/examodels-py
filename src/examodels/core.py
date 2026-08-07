@@ -5,7 +5,8 @@ import types
 import numpy as np
 
 from . import _bridge as _b
-from .node import Block, Constraint, Expression, Node, Records, _RecordCursor
+from .node import (Block, Constraint, Expression, Node, Product, Records,
+                   TupleNode, _ProductCursor, _RecordCursor)
 
 __all__ = ["Core", "trace", "backends", "install_backend"]
 
@@ -22,18 +23,20 @@ def trace(f):
 
 
 def _index_set(over):
-    """Describe an index set for the backend, shifted from 0-based to 1-based.
+    """Describe an index set for the backend, using the caller's own bounds.
 
-    Returns *arguments*, not an iterator: a Julia range that round-trips through
-    Python comes back as a `StepRange`, which several of the backend's size and
-    dispatch paths reject, so the iterator is constructed on the backend side.
-    Symbolic indexing is left unshifted, which keeps a traced expression identical
-    to the one the backend builds for itself.
+    Returns *arguments*, not an iterator: a range that round-trips through Python
+    comes back as a `StepRange`, which several of the backend's size and dispatch
+    paths reject, so the iterator is constructed on the backend side.
     """
     if isinstance(over, range):
         if over.step != 1:
             raise ValueError("index sets must have step 1")
-        return (over.start + 1, over.stop), len(over)
+        return (over.start, over.stop - 1), len(over)
+    if isinstance(over, Product):
+        los = [a.start for a in over.axes]
+        his = [a.stop - 1 for a in over.axes]
+        return (_b.product(los, his),), len(over)
     return (_b.unwrap(over),), len(over)
 
 
@@ -45,8 +48,18 @@ def _data(v, what):
     return float(v) if np.isscalar(v) else np.ascontiguousarray(v, dtype=np.float64)
 
 
-def _node(f):
-    return f if isinstance(f, Node) else trace(f)
+def _node(f, over=None):
+    """Trace `f`, giving it an index of the right arity for `over`."""
+    if isinstance(f, Node):
+        return f
+    arity = len(over.axes) if isinstance(over, Product) else 1
+    if arity == 1:
+        return trace(f)
+    sym = TupleNode(_b.EM.DataSource(), arity)
+    code = getattr(f, "__code__", None)
+    # a user function written `lambda t, i: ...` takes the components; one derived
+    # from a generator expression takes the tuple and unpacks it itself
+    return f(*sym) if code is not None and code.co_argcount == arity else f(sym)
 
 
 def _cell(value):
@@ -57,6 +70,8 @@ def _iterable_of(iterator):
     """The thing a generator expression is iterating, without consuming it."""
     if isinstance(iterator, _RecordCursor):
         return iterator.records
+    if isinstance(iterator, _ProductCursor):
+        return iterator.product
     try:                                    # range_iterator, list_iterator, ...
         fn, args, *_ = iterator.__reduce__()
         if args:
@@ -171,27 +186,39 @@ class Core:
         return out
 
     # -- variables and parameters ---------------------------------------------
-    def add_var(self, shape, start=0.0, lower=None, upper=None):
-        """A block of decision variables.
+    def add_var(self, *dims, start=0.0, lvar=None, uvar=None):
+        """A block of decision variables, one dimension per argument.
 
-            x = core.add_var(10)          # index as x[i]
-            y = core.add_var((T, N))      # index as y[t, i]
+            x = core.add_var(10)        # index as x[i]
+            y = core.add_var(T, N)      # index as y[t, i]
 
-        `start`, `lower` and `upper` are scalars or arrays of that shape.
+        `start`, `lvar` and `uvar` are scalars or arrays of that shape.
         """
-        dims = (shape,) if isinstance(shape, int) else tuple(shape)
+        if not dims or not all(isinstance(d, (int, range)) for d in dims):
+            raise TypeError("give one integer or range per dimension, "
+                            "e.g. add_var(T, N) or add_var(range(2, 11))")
+        # The backend dimension is declared with the caller's own bounds -- an
+        # integer `n` means `0:n-1`, a `range(a, b)` means `a:b-1`. Nothing is
+        # shifted anywhere: an index is a number the caller chose, so it reads the
+        # same whether it addresses a variable or appears in the arithmetic. The
+        # backend folds the offset into the constant it already carries, so this
+        # costs no extra node.
+        axes = [range(d) if isinstance(d, int) else d for d in dims]
+        los = [a.start for a in axes]
+        his = [a.stop - 1 for a in axes]
         kw = {"start": _data(start, "start")}
-        if lower is not None:
-            kw["lvar"] = _data(lower, "lower")
-        if upper is not None:
-            kw["uvar"] = _data(upper, "upper")
-        return Block(self._add(_b.add_var_n, *dims, **kw), dims)
+        if lvar is not None:
+            kw["lvar"] = _data(lvar, "lvar")
+        if uvar is not None:
+            kw["uvar"] = _data(uvar, "uvar")
+        return Block(self._add(_b.add_var_dims, los, his, **kw), tuple(axes))
 
     def add_par(self, values):
         """A block of parameters — fixed values usable in expressions, changeable
         afterwards with `Model.set_parameters` without rebuilding."""
         arr = np.ascontiguousarray(values, dtype=np.float64).ravel()
-        return Block(self._add(_b.EM.add_par, arr), arr.size, "parameter")
+        return Block(self._add(_b.add_par_range, 0, arr.size - 1, arr),
+                     arr.size, "parameter")
 
     # -- subexpressions -------------------------------------------------------
     def add_expr(self, f, over=None):
@@ -211,16 +238,16 @@ class Core:
         over = range(1) if over is None else over
         args, _ = _index_set(over)
         fn = _b.obj_range if len(args) == 2 else _b.obj_iter
-        self._core, _ = _b.guard(fn, self._core, _b.unwrap(_node(f)), *args)
+        self._core, _ = _b.guard(fn, self._core, _b.unwrap(_node(f, over)), *args)
         return self
 
-    def add_con(self, *args, over=None, lower=0.0, upper=0.0):
+    def add_con(self, *args, over=None, lcon=0.0, ucon=0.0):
         """Add constraints, or add terms to constraints already added.
 
             core.add_con(x[i] + x[i+1] for i in range(n - 1))
             core.add_con(lambda i: x[i] + x[i+1], over=range(n - 1))
 
-        `add_con(f, over)` creates one row per index, `lower <= f(i) <= upper`, and
+        `add_con(f, over)` creates one row per index, `lcon <= f(i) <= ucon`, and
         returns a handle.
 
         `add_con(handle, f, over)` adds terms into those rows: `f(row)` returns
@@ -239,15 +266,22 @@ class Core:
         # The backend's `add_con` has no low-level expression form (`add_obj` does),
         # so the expression is wrapped in a constant generator — the same approach
         # its own MathOptInterface backend uses.
-        gen = _b.gen_range(_b.unwrap(_node(f)), *args) if len(args) == 2 else \
-            _b.gen_iter(_b.unwrap(_node(f)), *args)
+        node = _b.unwrap(_node(f, over))
+        gen = _b.gen_range(node, *args) if len(args) == 2 else _b.gen_iter(node, *args)
         con = self._add(_b.EM.add_con, gen,
-                        lcon=_data(lower, "lower"), ucon=_data(upper, "upper"))
-        return Constraint(con, len(over))
+                        lcon=_data(lcon, "lcon"), ucon=_data(ucon, "ucon"))
+        # Rows are addressed by the index that produced them, but the backend
+        # numbers a constraint block's rows from 1 whatever the index set was (it
+        # takes their count, not their labels). So the label has to be mapped back
+        # to a position: an index set starting at `a` puts label `a` in row 1.
+        start = over.start if isinstance(over, range) else 0
+        return Constraint(con, len(over), 1 - start)
 
     def _augment(self, constraint, f, over):
         f, over = _as_function(f, over)
         idx, expr = f(Node(_b.EM.DataSource()))
+        if constraint.row_offset:
+            idx = idx + constraint.row_offset
         args, _ = _index_set(over)
         fn = _b.aug_range if len(args) == 2 else _b.aug_iter
         self._add(_b.EM.add_con_b, _b.unwrap(constraint),

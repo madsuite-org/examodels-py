@@ -19,7 +19,14 @@ index; anything index-dependent belongs in the data (`start`, `lower`, `upper`,
 or the index set itself).
 """
 from .core import Core, backends, install_backend, trace
-from .node import Block, Constant, Constraint, Expression, Node, Records
+from .node import (Block, Constant, Constraint, Expression, Node, Product,
+                   Records, TupleNode)
+from .node import prod, sum
+
+
+def product(*axes):
+    """A rectangular index set: `product(range(T), range(N))`."""
+    return Product(*axes)
 from .model import Model, Solution
 from .solve import available_solvers, install_solver, solve
 from ._bridge import ModelError
@@ -28,7 +35,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Core", "Model", "Solution", "Block", "Constraint", "Expression", "Records",
-    "Node", "Constant",
+    "Product", "product", "Node", "Constant", "sum", "prod",
     "trace", "solve", "available_solvers", "install_solver",
     "backends", "install_backend", "ModelError", "__version__",
 ]

@@ -8,7 +8,8 @@ import numpy as _np
 
 from . import _bridge as _b
 
-__all__ = ["Node", "Block", "Constraint", "Expression", "Records", "Constant"]
+__all__ = ["Node", "TupleNode", "Block", "Constraint", "Expression", "Product",
+           "Records", "Constant", "sum", "prod"]
 
 _BINARY = {"add": "+", "sub": "-", "mul": "*", "truediv": "/"}
 
@@ -75,38 +76,47 @@ class Block:
         y = core.add_var((T, N))      # y[t, i]
     """
 
-    __slots__ = ("_jl", "_shape", "_kind")
+    __slots__ = ("_jl", "_axes", "_kind")
 
-    def __init__(self, jlobj, shape, kind="variable"):
+    def __init__(self, jlobj, axes, kind="variable"):
         self._jl = jlobj
-        self._shape = (shape,) if isinstance(shape, int) else tuple(shape)
+        #: one `range` per dimension, in this package's own 0-based terms
+        self._axes = tuple(range(d) if isinstance(d, int) else d for d in
+                           (axes if isinstance(axes, tuple) else (axes,)))
         self._kind = kind
 
     @property
     def shape(self):
-        return self._shape
+        return tuple(len(a) for a in self._axes)
+
+    @property
+    def axes(self):
+        return self._axes
 
     def _axis(self, i, axis):
-        """0-based here, 1-based in the backend.
+        """Indices are passed through unchanged.
 
-        A concrete index is shifted here; a symbolic one is left alone, because the
-        index set it comes from has already been shifted (see core._index_set).
-        Doing both would double-count.
+        The block's backend dimension is declared with these same bounds, so an
+        index means the same thing on both sides -- whether it addresses a variable
+        or is used as a number in the surrounding arithmetic.
         """
         if isinstance(i, (int, _np.integer)):
-            i, n = int(i), self._shape[axis]
-            if not -n <= i < n:
+            i, ax = int(i), self._axes[axis]
+            if i < 0 and ax.start == 0:
+                i += len(ax)                       # ordinary negative indexing
+            if i not in ax:
                 raise IndexError(
-                    f"index {i} is out of range for axis {axis} of {self!r}")
-            return i % n + 1
+                    f"index {i} is out of range for axis {axis} "
+                    f"({ax.start}..{ax.stop - 1}) of {self!r}")
+            return i
         return _b.unwrap(i)
 
     def __getitem__(self, idx):
         idx = idx if isinstance(idx, tuple) else (idx,)
-        if len(idx) != len(self._shape):
+        if len(idx) != len(self._axes):
             raise IndexError(
-                f"{self!r} takes {len(self._shape)} "
-                f"ind{'ices' if len(self._shape) > 1 else 'ex'}, got {len(idx)}")
+                f"{self!r} takes {len(self._axes)} "
+                f"ind{'ices' if len(self._axes) > 1 else 'ex'}, got {len(idx)}")
         shifted = [self._axis(i, k) for k, i in enumerate(idx)]
         if len(shifted) == 1:
             return Node(_b.getidx(self._jl, shifted[0]))
@@ -114,22 +124,89 @@ class Block:
 
     def __len__(self):
         n = 1
-        for d in self._shape:
-            n *= d
+        for a in self._axes:
+            n *= len(a)
         return n
 
     def __repr__(self):
-        dims = " x ".join(str(d) for d in self._shape)
+        dims = " x ".join(str(len(a)) if a.start == 0 else f"{a.start}..{a.stop - 1}"
+                          for a in self._axes)
         return f"<{self._kind} block {dims}>"
+
+
+class TupleNode(Node):
+    """The symbolic index for a product index set.
+
+    Unpacking it (`t, i = ...`) yields one positional lookup per dimension, which
+    is what the backend does when it traces `expr for t in .., i in ..`.
+    """
+
+    __slots__ = ("_arity",)
+
+    def __init__(self, jlobj, arity):
+        super().__init__(jlobj)
+        self._arity = arity
+
+    def __iter__(self):
+        # tuple components are looked up positionally, and the backend numbers
+        # those from 1 regardless of what the index values are
+        return iter(tuple(Node(_b.getidx(self._jl, k + 1)) for k in range(self._arity)))
+
+    def __len__(self):
+        return self._arity
+
+
+class _ProductCursor:
+    """What iterating a `Product` yields to a generator expression."""
+
+    __slots__ = ("product",)
+
+    def __init__(self, product):
+        self.product = product
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        raise StopIteration
+
+
+class Product:
+    """A rectangular index set: one range per dimension.
+
+        core.add_con(x[t, i] - x[t-1, i] for t, i in exa.product(range(1, T), range(N)))
+    """
+
+    __slots__ = ("axes",)
+
+    def __init__(self, *axes):
+        if not axes or not all(isinstance(a, range) and a.step == 1 for a in axes):
+            raise TypeError("give one unit-step range per dimension, "
+                            "e.g. product(range(1, T), range(N))")
+        self.axes = tuple(axes)
+
+    def __len__(self):
+        n = 1
+        for a in self.axes:
+            n *= len(a)
+        return n
+
+    def __iter__(self):
+        return _ProductCursor(self)
+
+    def __repr__(self):
+        return f"<product {' x '.join(str(len(a)) for a in self.axes)}>"
 
 
 class Constraint:
     """A block of constraint rows. Pass it back to `add_con` to add terms to it."""
 
-    __slots__ = ("_jl", "_n")
+    __slots__ = ("_jl", "_n", "row_offset")
 
-    def __init__(self, jlobj, n):
+    def __init__(self, jlobj, n, row_offset=0):
         self._jl, self._n = jlobj, n
+        #: added to a row index when adding terms — see Core.add_con
+        self.row_offset = row_offset
 
     def __len__(self):
         return self._n
@@ -201,8 +278,8 @@ class Records:
         core.add_obj(g.cost * pg[g.i]**2 for g in gens)
 
     Rows are named tuples, mirroring how the backend holds them. Fields named in
-    `index` hold positions of variables; they are 0-based like everything else and
-    converted once, on the way in.
+    `index` hold positions of variables and are kept as integers; everything else
+    becomes a float.
     """
 
     __slots__ = ("_jl", "_n", "_fields")
@@ -223,7 +300,7 @@ class Records:
         cols = []
         for k, name in enumerate(fields):
             values = [r[k] for r in rows]
-            cols.append(np.ascontiguousarray(values, dtype=np.int64) + 1 if name in index
+            cols.append(np.ascontiguousarray(values, dtype=np.int64) if name in index
                         else np.ascontiguousarray(values, dtype=np.float64))
         self._jl = _b.mkrecords(list(fields), cols)
         self._n, self._fields = len(rows), tuple(fields)
@@ -236,6 +313,16 @@ class Records:
 
     def __repr__(self):
         return f"<Records {self._n} rows: {', '.join(self._fields)}>"
+
+
+def sum(nodes):
+    """A single summation node over `nodes` (the backend's `exa_sum`)."""
+    return Node(_b.exa_sum([_b.unwrap(n) for n in nodes]))
+
+
+def prod(nodes):
+    """A single product node over `nodes` (the backend's `exa_prod`)."""
+    return Node(_b.exa_prod([_b.unwrap(n) for n in nodes]))
 
 
 def Constant(v):

@@ -42,7 +42,7 @@ def test_reuse_across_objective_and_constraint():
     y = core.add_var(N, start=0.5)
     s = core.add_expr(lambda i: y[i]**2, over=range(N))
     core.add_obj(lambda i: (s[i] - 1)**2, over=range(N))
-    core.add_con(lambda i: s[i] + s[i+1], over=range(N - 1), lower=0.0, upper=10.0)
+    core.add_con(lambda i: s[i] + s[i+1], over=range(N - 1), lcon=0.0, ucon=10.0)
 
     p = exa.Model(core)
     assert p.nvar == N          # inlining adds no variables

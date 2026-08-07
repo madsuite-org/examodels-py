@@ -86,7 +86,15 @@ def _boot():
         same_ty=jl.seval("(a, b) -> typeof(a) === typeof(b)"),
         getidx=jl.seval("(v, i) -> v[i]"),
         getidxn=jl.seval("(v, is...) -> v[is...]"),
-        add_var_n=jl.seval("(c, ns...; kw...) -> ExaModels.add_var(c, ns...; kw...)"),
+        # Dimensions are passed as parallel lo/hi lists and the ranges are built
+        # here: a range handed back to Python returns as a StepRange, which the
+        # backend's size machinery rejects.
+        # A parameter block is declared with an explicit 0-based range for the same
+        # reason variables are: an array-shaped dimension would be 1-based.
+        add_par_range=jl.seval("(c, lo, hi, vals) -> ExaModels.add_par(c, "
+                               "UnitRange(Int(lo), Int(hi)); value = vals)"),
+        add_var_dims=jl.seval("(c, los, his; kw...) -> ExaModels.add_var(c, "
+                              "(UnitRange(Int(l), Int(h)) for (l, h) in zip(los, his))...; kw...)"),
         # An index set must never round-trip through Python: a Julia range comes
         # back out as a Python `range` and returns as a StepRange, which several of
         # the backend's size and dispatch paths reject (get_lcon/get_ucon among
@@ -94,9 +102,18 @@ def _boot():
         # -- what `Records` produces -- do not convert, and pass through fine.
         gen_range=jl.seval("(node, a, b) -> Base.Generator(_ -> node, UnitRange(a, b))"),
         gen_iter=jl.seval("(node, itr) -> Base.Generator(_ -> node, itr)"),
+        # A product index set: several ranges, again built here rather than handed
+        # across the boundary.
+        # Collected, not left lazy: a bare ProductIterator has no `keys`, which the
+        # objective path needs. Collecting keeps the rectangular shape, which is
+        # what makes the block multi-dimensional rather than merely flattened.
+        product=jl.seval("(los, his) -> collect(Iterators.product("
+                         "(UnitRange(Int(l), Int(h)) for (l, h) in zip(los, his))...))"),
         obj_range=jl.seval("(c, e, a, b) -> ExaModels.add_obj(c, e, UnitRange(a, b))"),
         obj_iter=jl.seval("(c, e, itr) -> ExaModels.add_obj(c, e, itr)"),
         getfield_=jl.seval("(n, s) -> getproperty(n, Symbol(s))"),
+        exa_sum=jl.seval("ns -> ExaModels.SumNode(Tuple(ns))"),
+        exa_prod=jl.seval("ns -> ExaModels.ProdNode(Tuple(ns))"),
         # Evaluation buffers must live wherever the model's arrays live, so they
         # are always allocated from the model rather than assumed to be host
         # memory. On CPU this is the identity; on a device it is what makes the

@@ -15,7 +15,7 @@ core.add_obj(100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2 for i in range(1, N))
 core.add_con((3 * x[i+1]**3 + 2 * x[i+2] - 5
               + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
               + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3
-              for i in range(0, N - 2)), lower=0.0, upper=0.0)
+              for i in range(0, N - 2)), lcon=0.0, ucon=0.0)
 
 model = exa.Model(core)
 sol = model.solve(solver="ipopt")
@@ -93,7 +93,7 @@ model.set_value(th, [200.0, 1.0])    # re-solve without rebuilding
 ```python
 s = core.add_expr(lambda i: y[i]**2, over=range(N))
 core.add_obj(lambda i: (s[i] - 1)**2, over=range(N))
-core.add_con(lambda i: s[i] + s[i+1], over=range(N - 1), lower=0.0)
+core.add_con(lambda i: s[i] + s[i+1], over=range(N - 1), lcon=0.0)
 ```
 
 Subexpressions are inlined at each use — they add no variables and no constraint rows.
@@ -122,10 +122,10 @@ handoff between CuPy arrays and device model arrays yet.
 | | |
 |---|---|
 | `Model()` | start building |
-| `.add_var(n, start=, lower=, upper=)` | a block of variables; index it with `[i]` |
-| `.add_var((T, N), ...)` | a multi-dimensional block; index it with `[t, i]` |
+| `.add_var(n, start=, lvar=, uvar=)` | a block of variables; index it with `[i]` |
+| `.add_var(T, N, ...)` | a multi-dimensional block; index it with `[t, i]` |
 | `.add_obj(f, over=)` | add `sum(f(i) for i in over)` to the objective |
-| `.add_con(f, over=, lower=, upper=)` | one row per index, `lower <= f(i) <= upper` |
+| `.add_con(f, over=, lcon=, ucon=)` | one row per index, `lower <= f(i) <= upper` |
 | `.solve(solver=)` | build and solve in one step |
 | `Model` | `.nvar` `.ncon` `.nnzj` `.nnzh` `.x0` `.objective(x)` `.gradient(x)` `.constraints(x)` |
 | `Solution` | `.status` `.objective` `.iterations` `.x` `.y` `.elapsed` `.success`, and `sol[x]` |
@@ -135,7 +135,7 @@ Everything crossing the boundary is a Python scalar, a `range`, or a numpy array
 ## Several dimensions
 
 ```python
-x = core.add_var((T, N), lower=np.zeros((T, N)))
+x = core.add_var(T, N, lvar=np.zeros((T, N)))
 
 Cell = namedtuple("Cell", "t i")
 grid = exa.Records([Cell(t, i) for t in range(1, T) for i in range(N)], index=["t", "i"])
@@ -178,6 +178,23 @@ is also the reason evaluation is fast.
 So keep the process alive — a session, a notebook, or a worker — rather than paying it
 per script. (A PackageCompiler system image was measured and is not recommended: it
 saves about 13 %, and a custom image cannot load the GPU backends at all.)
+
+## Coverage of the backend's interface
+
+`tests/test_parity.py` reads the backend's export list **at run time** and requires
+every name to be classified, so anything added upstream fails the suite until it is
+accounted for. Today, of 71 exported names:
+
+| | | |
+|---|---|---|
+| 31 | reachable | `Core`, `Model`, `add_var/par/obj/con/expr`, `add_con!`, `Constant`, `SumNode`/`ProdNode`, `solution`, `multipliers`(`_L`/`_U`), and all twelve `get_*`/`set_*` |
+| 6 | different spelling | the `@add_*` macros — written here as generator expressions |
+| 7 | out of scope | the backend's own deprecated API (`variable`, `objective`, …) |
+| 2 | out of scope | `@register_univariate`/`@register_bivariate` — defining an operator needs Julia |
+| 24 | **not exposed yet** | nonlinear oracles, two-stage models, tags, NLPModel wrappers |
+
+So **37 of the 61 in-scope exports** are reachable, and a single test builds a model
+that exercises every one of them.
 
 ## Tests
 

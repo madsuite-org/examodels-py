@@ -30,11 +30,11 @@ def ac_opf(data, backend=None):
     ninf = np.full(len(data["branch"]), -np.inf)
 
     va = core.add_var(len(data["bus"]))
-    vm = core.add_var(len(data["bus"]), start=1.0, lower=data["vmin"], upper=data["vmax"])
-    pg = core.add_var(len(data["gen"]), lower=data["pmin"], upper=data["pmax"])
-    qg = core.add_var(len(data["gen"]), lower=data["qmin"], upper=data["qmax"])
-    p = core.add_var(len(data["arc"]), lower=-rate, upper=rate)
-    q = core.add_var(len(data["arc"]), lower=-rate, upper=rate)
+    vm = core.add_var(len(data["bus"]), start=1.0, lvar=data["vmin"], uvar=data["vmax"])
+    pg = core.add_var(len(data["gen"]), lvar=data["pmin"], uvar=data["pmax"])
+    qg = core.add_var(len(data["gen"]), lvar=data["qmin"], uvar=data["qmax"])
+    p = core.add_var(len(data["arc"]), lvar=-rate, uvar=rate)
+    q = core.add_var(len(data["arc"]), lvar=-rate, uvar=rate)
 
     bus = exa.Records(data["bus"], index=["i"])
     gen = exa.Records(data["gen"], index=["i", "bus"])
@@ -68,11 +68,11 @@ def ac_opf(data, backend=None):
 
     # angle differences and thermal limits
     core.add_con((va[b.f_bus] - va[b.t_bus] for b in branch),
-                 lower=data["angmin"], upper=data["angmax"])
+                 lcon=data["angmin"], ucon=data["angmax"])
     core.add_con((p[b.f_idx]**2 + q[b.f_idx]**2 - b.rate_a_sq for b in branch),
-                 lower=ninf, upper=0.0)
+                 lcon=ninf, ucon=0.0)
     core.add_con((p[b.t_idx]**2 + q[b.t_idx]**2 - b.rate_a_sq for b in branch),
-                 lower=ninf, upper=0.0)
+                 lcon=ninf, ucon=0.0)
 
     # power balance: start from load and shunt, then add every line and generator
     pbal = core.add_con(b.pd + b.gs * vm[b.i]**2 for b in bus)

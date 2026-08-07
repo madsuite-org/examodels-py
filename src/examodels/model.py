@@ -136,6 +136,8 @@ class Solution:
     """
 
     _ALIASES = {"x": "solution", "y": "multipliers", "iterations": "iter"}
+    #: `multipliers` is a per-block accessor here, as it is in the backend; the
+    #: whole dual vector stays available as `.y`
 
     __slots__ = ("_raw", "elapsed")
 
@@ -161,11 +163,27 @@ class Solution:
     def success(self):
         return self.status in self._SUCCESS
 
-    def __getitem__(self, block):
-        flat = np.array(_b.tohost(_b.guard(_b.EM.solution, self._raw, block._jl)),
+    def multipliers(self, constraint):
+        """Duals of a constraint block."""
+        return self._block(_b.EM.multipliers, constraint)
+
+    def multipliers_L(self, block):
+        """Duals of a variable block's lower bounds."""
+        return self._block(_b.EM.multipliers_L, block)
+
+    def multipliers_U(self, block):
+        """Duals of a variable block's upper bounds."""
+        return self._block(_b.EM.multipliers_U, block)
+
+    def _block(self, fn, handle):
+        flat = np.array(_b.tohost(_b.guard(fn, self._raw, _b.unwrap(handle))),
                         dtype=np.float64)
-        shape = getattr(block, "shape", None)
+        shape = getattr(handle, "shape", None)
         return flat.reshape(shape, order="F") if shape and len(shape) > 1 else flat
+
+    def __getitem__(self, block):
+        """`sol[x]` — the solution values of a variable block."""
+        return self._block(_b.EM.solution, block)
 
     def __repr__(self):
         return (f"<Solution status={self.status!r} objective={self.objective:.6g} "

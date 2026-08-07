@@ -15,7 +15,7 @@ def luksan_vlcek(n=N):
         lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
         + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
         + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
-        over=range(0, n - 2), lower=0.0, upper=0.0)
+        over=range(0, n - 2), lcon=0.0, ucon=0.0)
     return core, x
 
 
