@@ -27,6 +27,41 @@ from .node import prod, sum
 def product(*axes):
     """A rectangular index set: `product(range(T), range(N))`."""
     return Product(*axes)
+
+
+#: The backend spells these as functions taking the core (or the model, or the
+#: result) first, and this package spells them as methods. Both are available and
+#: are the same call: the functions below simply forward, so there is one
+#: implementation and no chance of the two drifting.
+_CORE_FUNCTIONS = ("add_var", "add_par", "add_obj", "add_con", "add_expr")
+_MODEL_FUNCTIONS = ("get_value", "set_value", "get_start", "set_start",
+                    "get_lvar", "set_lvar", "get_uvar", "set_uvar",
+                    "get_lcon", "set_lcon", "get_ucon", "set_ucon",
+                    "objective", "gradient", "constraints", "violation", "solve")
+_RESULT_FUNCTIONS = ("multipliers", "multipliers_L", "multipliers_U")
+
+
+def _forward(name, first):
+    def fn(obj, *args, **kwargs):
+        return getattr(obj, name)(*args, **kwargs)
+
+    fn.__name__ = name
+    fn.__doc__ = (f"`{name}({first}, ...)` — the same call as `{first}.{name}(...)`, "
+                  f"in the argument order the backend uses.")
+    return fn
+
+
+for _n in _CORE_FUNCTIONS:
+    globals()[_n] = _forward(_n, "core")
+for _n in _MODEL_FUNCTIONS:
+    globals()[_n] = _forward(_n, "model")
+for _n in _RESULT_FUNCTIONS:
+    globals()[_n] = _forward(_n, "result")
+
+
+def solution(result, block):
+    """`solution(result, x)` — the same as `result[x]`."""
+    return result[block]
 from .model import Model, Solution
 from .solve import available_solvers, install_solver, solve
 from ._bridge import ModelError
@@ -36,7 +71,8 @@ __version__ = "0.1.0"
 __all__ = [
     "Core", "Model", "Solution", "Block", "Constraint", "Expression", "Records",
     "Product", "product", "Node", "Constant", "sum", "prod",
-    "trace", "solve", "available_solvers", "install_solver",
+    "trace", "available_solvers", "install_solver", "solution",
+    *_CORE_FUNCTIONS, *_MODEL_FUNCTIONS, *_RESULT_FUNCTIONS,
     "backends", "install_backend", "ModelError", "__version__",
 ]
 

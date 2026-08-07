@@ -31,7 +31,10 @@ def _index_set(over):
     """
     if isinstance(over, range):
         if over.step != 1:
-            raise ValueError("index sets must have step 1")
+            # A stepped range is a fine index *set* -- it is just a list of indices.
+            # It cannot be a variable *dimension*: the backend defines `_length`
+            # only for Int and UnitRange.
+            return (_b.int_vector(list(over)),), len(over)
         return (over.start, over.stop - 1), len(over)
     if isinstance(over, Product):
         los = [a.start for a in over.axes]
@@ -194,6 +197,15 @@ class Core:
 
         `start`, `lvar` and `uvar` are scalars or arrays of that shape.
         """
+        if len(dims) == 1 and (isinstance(dims[0], types.GeneratorType)
+                               or callable(dims[0])):
+            return self._defined_var(dims[0], start, lvar, uvar)
+        for d in dims:
+            if isinstance(d, range) and d.step != 1:
+                raise TypeError(
+                    f"a dimension cannot have a step ({d}); the backend defines "
+                    f"lengths only for whole ranges. Declare the whole range and "
+                    f"use the stepped one as an index set instead")
         if not dims or not all(isinstance(d, (int, range)) for d in dims):
             raise TypeError("give one integer or range per dimension, "
                             "e.g. add_var(T, N) or add_var(range(2, 11))")
@@ -212,6 +224,19 @@ class Core:
         if uvar is not None:
             kw["uvar"] = _data(uvar, "uvar")
         return Block(self._add(_b.add_var_dims, los, his, **kw), tuple(axes))
+
+    def _defined_var(self, f, start, lvar, uvar):
+        """`add_var(expr for i in over)` — variables tied to those expressions.
+
+        The same thing the backend does: make the block, then constrain each new
+        variable to equal its expression.
+        """
+        f, over = _as_function(f, None)
+        if not isinstance(over, range):
+            raise TypeError("variables defined by expressions need a range index set")
+        block = self.add_var(over, start=start, lvar=lvar, uvar=uvar)
+        self.add_con(lambda i: block[i] - f(i), over=over)
+        return block
 
     def add_par(self, values):
         """A block of parameters — fixed values usable in expressions, changeable
@@ -256,6 +281,15 @@ class Core:
         generator at a bus -- without materialising a sum per row. It mirrors the
         backend's `add_con` / `add_con!` pair.
         """
+        if args and all(isinstance(a, (int, range)) for a in args):
+            # dimensions only: an empty block, to be filled with add_con(handle, ...)
+            axes = [range(d) if isinstance(d, int) else d for d in args]
+            con = self._add(_b.con_dims, [a.start for a in axes], [a.stop - 1 for a in axes],
+                            lcon=_data(lcon, "lcon"), ucon=_data(ucon, "ucon"))
+            n = 1
+            for a in axes:
+                n *= len(a)
+            return Constraint(con, n, 1 - axes[0].start)
         if args and isinstance(args[0], Constraint):
             constraint, f, *rest = args               # add_con(handle, f, over)
             return self._augment(constraint, f, rest[0] if rest else over)

@@ -8,7 +8,7 @@ import examodels as exa
 
 N = 10
 core = exa.Core()
-x = core.add_var(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
+x = exa.add_var(core, N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
 
 core.add_obj(100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2 for i in range(1, N))
 

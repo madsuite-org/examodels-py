@@ -93,6 +93,8 @@ def _boot():
         # reason variables are: an array-shaped dimension would be 1-based.
         add_par_range=jl.seval("(c, lo, hi, vals) -> ExaModels.add_par(c, "
                                "UnitRange(Int(lo), Int(hi)); value = vals)"),
+        con_dims=jl.seval("(c, los, his; kw...) -> ExaModels.add_con(c, "
+                          "(UnitRange(Int(l), Int(h)) for (l, h) in zip(los, his))...; kw...)"),
         add_var_dims=jl.seval("(c, los, his; kw...) -> ExaModels.add_var(c, "
                               "(UnitRange(Int(l), Int(h)) for (l, h) in zip(los, his))...; kw...)"),
         # An index set must never round-trip through Python: a Julia range comes
@@ -112,6 +114,7 @@ def _boot():
         obj_range=jl.seval("(c, e, a, b) -> ExaModels.add_obj(c, e, UnitRange(a, b))"),
         obj_iter=jl.seval("(c, e, itr) -> ExaModels.add_obj(c, e, itr)"),
         getfield_=jl.seval("(n, s) -> getproperty(n, Symbol(s))"),
+        int_vector=jl.seval("v -> Int64[Int(i) for i in v]"),
         exa_sum=jl.seval("ns -> ExaModels.SumNode(Tuple(ns))"),
         exa_prod=jl.seval("ns -> ExaModels.ProdNode(Tuple(ns))"),
         # Evaluation buffers must live wherever the model's arrays live, so they

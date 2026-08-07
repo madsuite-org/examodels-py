@@ -228,7 +228,9 @@ class Expression:
 
     def __init__(self, f, over):
         self._f = f
-        self._over = over if isinstance(over, tuple) else (over,)
+        axes = getattr(over, "axes", None)           # a Product indexes per axis
+        self._over = axes if axes is not None else (
+            over if isinstance(over, tuple) else (over,))
 
     def __getitem__(self, idx):
         idx = idx if isinstance(idx, tuple) else (idx,)
