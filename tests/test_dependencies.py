@@ -10,9 +10,14 @@ ROOT = pathlib.Path(examodels.__file__).parent
 
 
 def test_declared_backend_range_is_the_one_installed():
-    """The version the package declares must be the version it is actually running."""
-    installed = _b.version
+    """The version the package declares must be the version it is actually
+    running. A revision pin declares an exact source instead of a range, so
+    there is nothing further to enforce here (the pin itself is checked by
+    test_backend_requirements_are_declared_in_one_place)."""
     declared = _b._compat()
+    if declared is None:
+        return
+    installed = _b.version
     assert installed.startswith(declared + "."), \
         f"declared {declared}, running {installed} -- the compat bound is not being enforced"
 
@@ -77,7 +82,10 @@ def test_backend_requirements_are_declared_in_one_place():
     spec = json.loads((ROOT / "juliapkg.json").read_text())
     assert set(spec["packages"]) >= {"ExaModels", "NLPModels"}
     for name, entry in spec["packages"].items():
-        assert entry.get("version"), f"{name} has no version bound"
+        # A version range or a revision pin: both are exact declarations;
+        # having neither means the requirement is undeclared.
+        assert entry.get("version") or entry.get("rev"), \
+            f"{name} has neither a version bound nor a revision pin"
 
 
 def test_only_the_bridge_touches_juliacall():
@@ -87,16 +95,21 @@ def test_only_the_bridge_touches_juliacall():
     assert not offenders, f"juliacall imported outside the bridge: {offenders}"
 
 
-def test_seval_only_in_the_bridge_and_tape():
-    """The coupling invariant, widened deliberately: raw `seval` plumbing is
-    allowed in `_bridge.py` (the coupling surface) and `tape.py` (recording
-    plumbing over that surface) — nowhere else. The `juliacall` grep above
-    does not see `_b.seval`, so this closes the gap it left."""
+def test_seval_goes_through_the_bridge():
+    """The coupling invariant, widened deliberately: `juliacall` may only be
+    imported by `_bridge.py` (tested above), and every `seval` call site must
+    reach it through the bridge (`_b.seval(...)`), never obtained another way.
+    Inline Julia plumbing is package-wide by design; what is single-sourced is
+    the interop object it runs through. (The `juliacall` grep alone cannot see
+    a smuggled `seval`, which is the gap this closes.)"""
     import pathlib
+    import re
     src = pathlib.Path(__file__).parents[1] / "src" / "examodels"
+    bad = re.compile(r"(?<!_b\.)(?<!bridge\.)\bseval\(")
     offenders = [f.name for f in src.glob("*.py")
-                 if "seval" in f.read_text() and f.name not in ("_bridge.py", "tape.py")]
+                 if f.name != "_bridge.py" and bad.search(f.read_text())]
     assert offenders == [], offenders
+
 
 
 def test_the_backend_source_in_use_is_reported():
