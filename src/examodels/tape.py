@@ -126,6 +126,51 @@ class Tape:
     def add_obj(self, f, over):
         return self._add(_b.EM.add_obj, self._trace(f), self._over(over))
 
+    def compile(self, *, prefix="rec", out="lib_out", julia_project=None, verbose=False):
+        """Compile the recorded tape into a self-contained shared library
+        exposing the model through a C ABI (consumable with `cnlpmodels`,
+        no Julia needed on the consumer side).
+
+        The build runs in a Julia project providing ExaModels and JuliaC
+        (`julia_project`, or `$EXAMODELS_COMPILE_PROJECT`); the tape itself
+        crosses over serialized, so no Julia source is written. Currently
+        limited to single-integer-field templates. Returns the library path.
+        """
+        import os
+        import subprocess
+        import tempfile
+
+        proj = julia_project or os.environ.get("EXAMODELS_COMPILE_PROJECT")
+        if not proj:
+            raise RuntimeError(
+                "tape.compile() needs a Julia project with ExaModels + JuliaC: "
+                "pass julia_project= or set EXAMODELS_COMPILE_PROJECT"
+            )
+        if len(self._template) != 1 or not isinstance(next(iter(self._template.values())), int):
+            raise ValueError("tape.compile() currently needs a single integer-field template")
+        (fname, fval), = self._template.items()
+
+        fd, jls = tempfile.mkstemp(suffix=".jls")
+        os.close(fd)
+        _b.seval("(t, p) -> ExaModels.Serialization.serialize(pyconvert(String, p), t)")(self._tape, jls)
+        outdir = os.path.abspath(out)
+        code = (
+            "using ExaModels, JuliaC, Serialization; "
+            f'tape = deserialize("{jls}"); '
+            f"r = compile_library(tape; template = (; {fname} = {int(fval)}), "
+            f'prefix = "{prefix}", out = "{outdir}", template_n = {int(fval)}, '
+            f"verbose = {str(bool(verbose)).lower()}); "
+            "println(r.libpath)"
+        )
+        res = subprocess.run(["julia", "--project=" + proj, "-e", code],
+                             capture_output=True, text=True)
+        os.unlink(jls)
+        if res.returncode != 0:
+            raise RuntimeError(
+                "shared-library build failed:\n" + res.stdout[-2000:] + res.stderr[-2000:]
+            )
+        return res.stdout.strip().splitlines()[-1]
+
     def replay(self, **data):
         h = _helpers()
         merged = {**self._template, **data}
