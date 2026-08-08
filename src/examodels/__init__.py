@@ -58,6 +58,7 @@ from .node import (
     sum,
 )
 from .solve import available_solvers, install_solver, solve
+from .tape import Tape, span
 
 
 def product(*axes):
@@ -102,6 +103,8 @@ def solution(result, block):
 __version__ = "0.1.0"
 
 __all__ = [
+    "Tape",
+    "span",
     "Core", "Model", "Solution", "Block", "Constraint", "Expression",
     "Product", "product", "Node", "TupleNode", "Constant", "sum", "prod",
     "trace", "available_solvers", "install_solver", "solution",
