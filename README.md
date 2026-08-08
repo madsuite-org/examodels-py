@@ -80,6 +80,27 @@ exa.install_solver("madnlp")     # CPU or GPU
 exa.available_solvers()          # ['ipopt', 'madnlp']
 ```
 
+## Recording: one model, any size
+
+A `Tape` records the same calls a `Core` executes, against a data template
+whose sizes are symbolic — then replays at any size, or compiles to a
+self-contained shared library:
+
+```python
+tape = exa.Tape(N=4)                      # template: schema only
+x = tape.add_var(tape.data.N, start=-0.5)
+tape.add_obj(lambda i: (x[i-1]**2 - x[i])**2, over=exa.srange(1, tape.data.N))
+
+model = exa.Model(tape.replay(N=10_000))  # ordinary Core from here on
+
+lib = tape.compile(prefix="lv")           # .so via the Julia toolchain;
+                                          # solve it with `cnlpmodels` — no Julia
+```
+
+Index sets stay Python-shaped: `range` for static sets, `srange(lo, hi)`
+(same half-open meaning) when a bound involves `tape.data`. Structure cannot
+depend on data values — comparisons on `tape.data` handles raise, by design.
+
 ## Parameters and subexpressions
 
 ```python

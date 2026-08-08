@@ -152,7 +152,10 @@ class Tape:
 
         fd, jls = tempfile.mkstemp(suffix=".jls")
         os.close(fd)
-        _b.seval("(t, p) -> ExaModels.Serialization.serialize(pyconvert(String, p), t)")(self._tape, jls)
+        serialize = _b.seval(
+            "(t, p) -> ExaModels.Serialization.serialize(pyconvert(String, p), t)"
+        )
+        serialize(self._tape, jls)
         outdir = os.path.abspath(out)
         code = (
             "using ExaModels, JuliaC, Serialization; "
