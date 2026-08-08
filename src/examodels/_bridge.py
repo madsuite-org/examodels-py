@@ -19,7 +19,7 @@ REQUIRED = (
     "ExaCore", "ExaModel", "add_var", "add_par", "add_obj", "add_con",
     "DataSource", "Constant", "obj", "solution", "get_value", "set_value!",
     "_UNIVARIATES", "_BIVARIATES", "fulltype_display!",
-    "ExaTape", "DataTracer", "replay",
+    "ExaTape", "DataTracer", "instantiate",
 )
 
 

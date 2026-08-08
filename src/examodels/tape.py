@@ -2,7 +2,7 @@
 
 A `Tape` records the same `add_var` / `add_con` / `add_obj` calls a `Core`
 executes, against a *data template* whose sizes are symbolic. The recorded
-tape is replayed against actual data — of any size matching the template's
+tape is instantiated against actual data — of any size matching the template's
 schema — producing an ordinary `Core` ready for `Model`/`solve`.
 
 Conventions are Core's: indices are 0-based numbers, index sets are half-open
@@ -13,7 +13,7 @@ its bounds may involve `tape.data` values.
 PROTOTYPE (rune/tape): single-stage models, lambda-traced expressions,
 scalar template fields. Two-stage and generator-expression sugar follow the
 design review. Solution read-back (`sol[x]`) resolves against the tape's
-most recent `replay()`; Block-style handles (shapes, bounds-checked indexing)
+most recent `instantiate()`; Block-style handles (shapes, bounds-checked indexing)
 follow the review as well.
 """
 from . import _bridge as _b
@@ -83,12 +83,12 @@ class _Data:
 
 
 class Tape:
-    """Records a model against symbolic data; `replay(**data)` makes a `Core`.
+    """Records a model against symbolic data; `instantiate(**data)` makes a `Core`.
 
         tape = Tape(N=4)                      # template: schema only
         x = tape.add_var(tape.data.N, start=-0.5)
         tape.add_con(lambda i: x[i] + x[i+1], over=srange(0, tape.data.N - 1))
-        core = tape.replay(N=1000)            # any size, real model
+        core = tape.instantiate(N=1000)            # any size, real model
     """
 
     def __init__(self, **template):
@@ -196,18 +196,38 @@ class Tape:
             )
         return res.stdout.strip().splitlines()[-1]
 
-    def replay(self, **data):
-        if set(data) != set(self._template):
-            raise TypeError(
-                "replay() takes exactly the template's fields "
-                f"{sorted(self._template)}; got {sorted(data) or '{}'} "
-                "(template values are schema placeholders, never defaults)"
-            )
-        h = _helpers()
-        merged = data
+    def instantiate(self, *args, **fields):
+        """Instantiate the tape: by name (`tape.instantiate(N=1000)`), as one
+        bare value for a single-field schema (`tape.instantiate(1000)`), or
+        with nothing at all when the tape never touched the data template."""
+        if args and fields:
+            raise TypeError("pass either one positional value or keyword fields, not both")
         core = Core.__new__(Core)
-        core._core = _b.guard(
-            _b.EM.replay, self._tape, h["mk_nt"](list(merged), list(merged.values()))
-        )
+        if fields:
+            if set(fields) != set(self._template):
+                raise TypeError(
+                    "instantiate() takes exactly the template's fields "
+                    f"{sorted(self._template)}; got {sorted(fields) or '{}'} "
+                    "(template values are schema placeholders, never defaults)"
+                )
+            h = _helpers()
+            core._core = _b.guard(
+                _b.EM.instantiate, self._tape,
+                h["mk_nt"](list(fields), list(fields.values())),
+            )
+        elif args:
+            if len(args) != 1 or len(self._template) != 1:
+                raise TypeError(
+                    "the positional form takes exactly one bare value, for a "
+                    f"single-field schema; this template has fields {sorted(self._template)}"
+                )
+            core._core = _b.guard(_b.EM.instantiate, self._tape, args[0])
+        else:
+            if self._template:
+                raise TypeError(
+                    f"this tape's schema has fields {sorted(self._template)}; "
+                    "instantiate with them"
+                )
+            core._core = _b.guard(_b.EM.instantiate, self._tape)
         core._named = {}
         return core

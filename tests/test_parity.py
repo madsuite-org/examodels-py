@@ -29,8 +29,8 @@ SURFACE = {
     # recorder (tape) surface — matches backend branch ss/recorder; on a
     # backend WITHOUT the recorder these entries make the stale-entry test
     # fail, which is the intended signal (branch coupling, not drift).
-    # Construction is explicit (ExaTape + DataTracer); replay is reached
-    # through the unexported ExaModels.replay, wrapped by Tape.replay.
+    # Construction is explicit (ExaTape + DataTracer); instantiate is reached
+    # through the unexported ExaModels.instantiate, wrapped by Tape.instantiate.
     "ExaTape": (SUPPORTED, "exa.Tape"),
     "DataTracer": (SUPPORTED, "Tape.data"),
     "RecorderStructureError": (SUPPORTED, "surfaced through ModelError/TypeError guards"),
