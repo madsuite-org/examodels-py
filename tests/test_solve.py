@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 import examodels as exa
+from conftest import requires
 
 N = 10
 
@@ -67,6 +68,7 @@ def test_matches_the_julia_formulation():
     assert sol.objective == pytest.approx(jl_obj, rel=1e-8)
 
 
+@requires("madnlp")
 def test_madnlp_success_is_recognised():
     """Each solver reports success in its own vocabulary; `success` must know both."""
     core, x = luksan_vlcek()

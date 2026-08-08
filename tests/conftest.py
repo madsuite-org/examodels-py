@@ -21,9 +21,15 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "needs_solver: requires a solver backend")
 
 
-@pytest.fixture(scope="session")
-def has_ipopt():
-    return _installed("ipopt")
+def requires(name):
+    """Skip unless a particular solver backend is installed.
+
+    The suite-wide skip below only fires when there is no solver at all; a test
+    naming one specifically needs its own guard, or it fails in an environment
+    that happens to have a different one.
+    """
+    return pytest.mark.skipif(not _installed(name),
+                              reason=f"the {name!r} solver is not installed")
 
 
 def pytest_collection_modifyitems(config, items):
