@@ -5,15 +5,20 @@ executes, against a *data template* whose sizes are symbolic. The recorded
 tape is replayed against actual data — of any size matching the template's
 schema — producing an ordinary `Core` ready for `Model`/`solve`.
 
+Conventions are Core's: indices are 0-based numbers, index sets are half-open
+and `range`-shaped. A static set is a `range`; a data-derived one is
+`srange(lo, hi)`, which means exactly what `range(lo, hi)` means except that
+its bounds may involve `tape.data` values.
+
 PROTOTYPE (rune/tape): single-stage models, lambda-traced expressions,
-`span()` index sets, scalar template fields. Two-stage, generator-expression
-sugar, and `range` support follow the design review.
+scalar template fields. Two-stage and generator-expression sugar follow the
+design review.
 """
 from . import _bridge as _b
 from .core import Core
 from .node import Node
 
-__all__ = ["Tape", "span"]
+__all__ = ["Tape", "srange"]
 
 _H = None
 
@@ -31,21 +36,25 @@ def _helpers():
     return _H
 
 
-class _Span:
+class _SRange:
     __slots__ = ("lo", "hi")
 
     def __init__(self, lo, hi):
         self.lo, self.hi = lo, hi
 
 
-def span(lo, hi):
-    """An inclusive index range (backend convention: 1-based) whose bounds may
-    be data-derived (`span(1, tape.data.N - 2)`)."""
-    return _Span(lo, hi)
+def srange(lo, hi):
+    """Half-open 0-based index set, like `range(lo, hi)`, whose bounds may be
+    data-derived: `srange(0, tape.data.N - 2)`."""
+    return _SRange(lo, hi)
 
 
 def _jl(v):
     return v._jl if isinstance(v, Node) else v
+
+
+def _minus_one(v):
+    return (v - 1) if isinstance(v, Node) else v - 1
 
 
 class _Data:
@@ -67,7 +76,7 @@ class Tape:
 
         tape = Tape(N=4)                      # template: schema only
         x = tape.add_var(tape.data.N, start=-0.5)
-        tape.add_con(lambda i: x[i] + x[i+1], over=span(1, tape.data.N - 1))
+        tape.add_con(lambda i: x[i] + x[i+1], over=srange(0, tape.data.N - 1))
         core = tape.replay(N=1000)            # any size, real model
     """
 
@@ -86,20 +95,29 @@ class Tape:
         return out
 
     def _over(self, over):
-        if isinstance(over, _Span):
-            return _helpers()["colon"](_jl(over.lo), _jl(over.hi))
+        h = _helpers()
+        if isinstance(over, _SRange):
+            return h["colon"](_jl(over.lo), _jl(_minus_one(over.hi)))
+        if isinstance(over, range):
+            if over.step != 1:
+                raise ValueError("index sets are contiguous; got a stepped range")
+            return h["colon"](over.start, over.stop - 1)
         raise TypeError(
-            "tape index sets are written span(lo, hi) (inclusive, 1-based; "
-            "bounds may be data-derived) — `range` support follows the design review"
+            "an index set is a range (static) or srange(lo, hi) (data-derived); "
+            f"got {type(over).__name__}"
         )
 
     def _trace(self, f):
         return _jl(f(Node(_b.EM.DataSource())))
 
     def add_var(self, n, *, start=None, lvar=None, uvar=None):
+        """A block of `n` variables indexed 0-based: `x[0]` … `x[n-1]`.
+        `n` may be data-derived (`tape.add_var(tape.data.N)`)."""
+        h = _helpers()
         kw = {k: _jl(v) for k, v in
               (("start", start), ("lvar", lvar), ("uvar", uvar)) if v is not None}
-        return Node(self._add(_b.EM.add_var, _jl(n), **kw))
+        dims = h["colon"](0, _jl(_minus_one(n)))
+        return Node(self._add(_b.EM.add_var, dims, **kw))
 
     def add_con(self, f, over, *, lcon=None, ucon=None):
         kw = {k: _jl(v) for k, v in (("lcon", lcon), ("ucon", ucon)) if v is not None}
