@@ -19,14 +19,17 @@ REQUIRED = (
     "ExaCore", "ExaModel", "add_var", "add_par", "add_obj", "add_con",
     "DataSource", "Constant", "obj", "solution", "get_value", "set_value!",
     "_UNIVARIATES", "_BIVARIATES", "fulltype_display!",
+    "ExaTape", "DataTracer", "replay",
 )
 
 
 def _compat():
     """The backend version range this package declares — read from the one place
-    it is written down, so the runtime check and the installer cannot disagree."""
+    it is written down, so the runtime check and the installer cannot disagree.
+    Returns None when the backend is pinned by revision instead (a rev pin is
+    an exact declaration, so there is no range to check)."""
     spec = json.loads((Path(__file__).parent / "juliapkg.json").read_text())
-    return spec["packages"]["ExaModels"]["version"]
+    return spec["packages"]["ExaModels"].get("version")
 
 
 def _configure_runtime():
@@ -53,7 +56,7 @@ def _check(jl):
     version = str(jl.seval("string(pkgversion(ExaModels))"))
     want = _compat()
     got = tuple(int(p) for p in version.split("-")[0].split("."))
-    ok = any(_satisfies(got, bound.strip()) for bound in want.split(","))
+    ok = want is None or any(_satisfies(got, bound.strip()) for bound in want.split(","))
     if missing or not ok:
         raise RuntimeError(
             f"the ExaModels backend in this environment (version {version}) is not the "

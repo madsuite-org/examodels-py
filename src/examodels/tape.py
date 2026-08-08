@@ -12,7 +12,9 @@ its bounds may involve `tape.data` values.
 
 PROTOTYPE (rune/tape): single-stage models, lambda-traced expressions,
 scalar template fields. Two-stage and generator-expression sugar follow the
-design review.
+design review. Solution read-back (`sol[x]`) resolves against the tape's
+most recent `replay()`; Block-style handles (shapes, bounds-checked indexing)
+follow the review as well.
 """
 from . import _bridge as _b
 from .core import Core
@@ -49,6 +51,15 @@ def srange(lo, hi):
     return _SRange(lo, hi)
 
 
+class _TapeHandle(Node):
+    """Tape variable handle: a `Node` whose solution read-back is flat.
+    (`Solution._block` probes `.shape`; a class attribute answers before
+    `Node.__getattr__` would forward the probe to Julia. Block-style shaped
+    handles follow the design review.)"""
+    __slots__ = ()
+    shape = None
+
+
 def _jl(v):
     return v._jl if isinstance(v, Node) else v
 
@@ -79,8 +90,6 @@ class Tape:
         tape.add_con(lambda i: x[i] + x[i+1], over=srange(0, tape.data.N - 1))
         core = tape.replay(N=1000)            # any size, real model
     """
-
-    nscen = 0
 
     def __init__(self, **template):
         h = _helpers()
@@ -117,7 +126,7 @@ class Tape:
         kw = {k: _jl(v) for k, v in
               (("start", start), ("lvar", lvar), ("uvar", uvar)) if v is not None}
         dims = h["colon"](0, _jl(_minus_one(n)))
-        return Node(self._add(_b.EM.add_var, dims, **kw))
+        return _TapeHandle(self._add(_b.EM.add_var, dims, **kw))
 
     def add_con(self, f, over, *, lcon=None, ucon=None):
         kw = {k: _jl(v) for k, v in (("lcon", lcon), ("ucon", ucon)) if v is not None}
@@ -137,6 +146,7 @@ class Tape:
         limited to single-integer-field templates. Returns the library path.
         """
         import os
+        import re
         import subprocess
         import tempfile
 
@@ -149,25 +159,37 @@ class Tape:
         if len(self._template) != 1 or not isinstance(next(iter(self._template.values())), int):
             raise ValueError("tape.compile() currently needs a single integer-field template")
         (fname, fval), = self._template.items()
+        ident = r"[A-Za-z_][A-Za-z0-9_]*"
+        if not re.fullmatch(ident, prefix) or not re.fullmatch(ident, fname):
+            raise ValueError(
+                f"prefix and template field must be C identifiers, got {prefix!r}/{fname!r}"
+            )
 
+        import juliapkg
         fd, jls = tempfile.mkstemp(suffix=".jls")
         os.close(fd)
-        serialize = _b.seval(
-            "(t, p) -> ExaModels.Serialization.serialize(pyconvert(String, p), t)"
-        )
-        serialize(self._tape, jls)
-        outdir = os.path.abspath(out)
-        code = (
-            "using ExaModels, JuliaC, Serialization; "
-            f'tape = deserialize("{jls}"); '
-            f"r = compile_library(tape; template = (; {fname} = {int(fval)}), "
-            f'prefix = "{prefix}", out = "{outdir}", template_n = {int(fval)}, '
-            f"verbose = {str(bool(verbose)).lower()}); "
-            "println(r.libpath)"
-        )
-        res = subprocess.run(["julia", "--project=" + proj, "-e", code],
-                             capture_output=True, text=True)
-        os.unlink(jls)
+        try:
+            serialize = _b.seval(
+                "(t, p) -> ExaModels.Serialization.serialize(pyconvert(String, p), t)"
+            )
+            serialize(self._tape, jls)
+            outdir = os.path.abspath(out)
+            # User-controlled values travel as ARGS, never interpolated into code.
+            code = (
+                "using ExaModels, JuliaC, Serialization; "
+                "tape = deserialize(ARGS[1]); "
+                f"r = compile_library(tape; template = (; {fname} = {int(fval)}), "
+                f"prefix = ARGS[3], out = ARGS[2], template_n = {int(fval)}, "
+                f"verbose = {str(bool(verbose)).lower()}); "
+                "println(r.libpath)"
+            )
+            res = subprocess.run(
+                [juliapkg.executable(), "--project=" + proj, "-e", code,
+                 "--", jls, outdir, prefix],
+                capture_output=True, text=True,
+            )
+        finally:
+            os.unlink(jls)
         if res.returncode != 0:
             raise RuntimeError(
                 "shared-library build failed:\n" + res.stdout[-2000:] + res.stderr[-2000:]
@@ -175,8 +197,14 @@ class Tape:
         return res.stdout.strip().splitlines()[-1]
 
     def replay(self, **data):
+        if set(data) != set(self._template):
+            raise TypeError(
+                "replay() takes exactly the template's fields "
+                f"{sorted(self._template)}; got {sorted(data) or '{}'} "
+                "(template values are schema placeholders, never defaults)"
+            )
         h = _helpers()
-        merged = {**self._template, **data}
+        merged = data
         core = Core.__new__(Core)
         core._core = _b.guard(
             _b.EM.replay, self._tape, h["mk_nt"](list(merged), list(merged.values()))

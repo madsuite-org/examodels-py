@@ -49,11 +49,13 @@ def test_static_range_also_works():
     tape = exa.Tape(N=4)
     x = tape.add_var(tape.data.N, start=0.0)
     tape.add_obj(lambda i: (x[i] - 1)**2, over=range(0, 4))  # static set
-    core = tape.replay(N=4)
-    assert core is not None
+    sol = exa.Model(tape.replay(N=4)).solve(solver="madnlp")
+    assert sol.success
+    assert abs(sol.objective) < 1e-8          # optimum: every x[i] = 1
+    assert abs(sol[x][0] - 1.0) < 1e-6        # read-back through the tape handle
 
 
-def test_structure_cannot_depend_on_data():
+def test_structure_cannot_depend_on_data_python_layer():
     tape = exa.Tape(N=4)
     try:
         bool(tape.data.N > 5)
@@ -61,3 +63,25 @@ def test_structure_cannot_depend_on_data():
         pass  # comparisons on data handles are refused (Python-side, by Node)
     else:
         raise AssertionError("comparing a data value should not be allowed")
+
+
+def test_structure_cannot_depend_on_data_backend_guard():
+    """The recorder's own guard, reached through the bridge's error translation."""
+    import pytest
+
+    from examodels import _bridge as _b
+    tape = exa.Tape(N=4)
+    compare = _b.seval("d -> d.N > 5")
+    with pytest.raises(exa.ModelError, match="[Ss]tructure"):
+        _b.guard(compare, tape.data._tracer)
+
+
+def test_replay_requires_exact_template_fields():
+    tape = exa.Tape(N=4)
+    x = tape.add_var(tape.data.N, start=0.0)
+    tape.add_obj(lambda i: (x[i] - 1)**2, over=range(0, 4))
+    import pytest
+    with pytest.raises(TypeError, match="template"):
+        tape.replay(M=999)     # wrong key must not silently build N=4
+    with pytest.raises(TypeError, match="template"):
+        tape.replay()          # missing key must not default to the placeholder

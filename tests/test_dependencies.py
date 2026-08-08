@@ -87,6 +87,18 @@ def test_only_the_bridge_touches_juliacall():
     assert not offenders, f"juliacall imported outside the bridge: {offenders}"
 
 
+def test_seval_only_in_the_bridge_and_tape():
+    """The coupling invariant, widened deliberately: raw `seval` plumbing is
+    allowed in `_bridge.py` (the coupling surface) and `tape.py` (recording
+    plumbing over that surface) — nowhere else. The `juliacall` grep above
+    does not see `_b.seval`, so this closes the gap it left."""
+    import pathlib
+    src = pathlib.Path(__file__).parents[1] / "src" / "examodels"
+    offenders = [f.name for f in src.glob("*.py")
+                 if "seval" in f.read_text() and f.name not in ("_bridge.py", "tape.py")]
+    assert offenders == [], offenders
+
+
 def test_the_backend_source_in_use_is_reported():
     """A dev checkout silently overriding the declared version must be visible."""
     path = str(_b.seval("pathof(ExaModels)"))

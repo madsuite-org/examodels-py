@@ -26,7 +26,9 @@ ABSENT = "absent"            # no Python surface yet
 SURFACE = {
     # -- construction -------------------------------------------------------
     "ExaCore": (SUPPORTED, "exa.Core"),
-    # recorder (tape) surface, backend branch ss/recorder
+    # recorder (tape) surface — matches backend branch ss/recorder; on a
+    # backend WITHOUT the recorder these entries make the stale-entry test
+    # fail, which is the intended signal (branch coupling, not drift)
     "ExaTape": (SUPPORTED, "exa.Tape"),
     "DataTracer": (SUPPORTED, "Tape.data"),
     "record": (SUPPORTED, "exa.Tape (records incrementally)"),
