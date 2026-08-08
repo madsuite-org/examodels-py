@@ -26,6 +26,13 @@ ABSENT = "absent"            # no Python surface yet
 SURFACE = {
     # -- construction -------------------------------------------------------
     "ExaCore": (SUPPORTED, "exa.Core"),
+    # recorder (tape) surface, backend branch ss/recorder
+    "ExaTape": (SUPPORTED, "exa.Tape"),
+    "DataTracer": (SUPPORTED, "Tape.data"),
+    "record": (SUPPORTED, "exa.Tape (records incrementally)"),
+    "replay": (SUPPORTED, "Tape.replay"),
+    "RecorderStructureError": (SUPPORTED, "surfaced through ModelError/TypeError guards"),
+    "compile_library": (JULIA, "shared-library builds run in the Julia toolchain"),
     "ExaModel": (SUPPORTED, "exa.Model"),
     "add_var": (SUPPORTED, "Core.add_var"),
     "add_par": (SUPPORTED, "Core.add_par"),
