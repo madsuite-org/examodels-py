@@ -30,8 +30,8 @@ def _lv_tape():
 
 
 def test_replayed_tape_matches_core():
-    sol_tape = exa.Model(_lv_tape().replay(N=N_REPLAY)).solve(solver="madnlp")
-    sol_core = exa.Model(_lv_core(N_REPLAY)).solve(solver="madnlp")
+    sol_tape = exa.Model(_lv_tape().replay(N=N_REPLAY)).solve(solver="ipopt")
+    sol_core = exa.Model(_lv_core(N_REPLAY)).solve(solver="ipopt")
     assert sol_tape.success and sol_core.success
     assert sol_tape.status == sol_core.status
     assert abs(sol_tape.objective - sol_core.objective) < 1e-10
@@ -39,7 +39,7 @@ def test_replayed_tape_matches_core():
 
 def test_one_tape_many_sizes():
     tape = _lv_tape()
-    objs = [exa.Model(tape.replay(N=n)).solve(solver="madnlp").objective
+    objs = [exa.Model(tape.replay(N=n)).solve(solver="ipopt").objective
             for n in (20, 60)]
     # LuksanVlcek's optimum is size-stable; both must be finite and close.
     assert all(abs(o - 6.2324586324) < 1e-6 for o in objs)
@@ -49,7 +49,7 @@ def test_static_range_also_works():
     tape = exa.Tape(N=4)
     x = tape.add_var(tape.data.N, start=0.0)
     tape.add_obj(lambda i: (x[i] - 1)**2, over=range(0, 4))  # static set
-    sol = exa.Model(tape.replay(N=4)).solve(solver="madnlp")
+    sol = exa.Model(tape.replay(N=4)).solve(solver="ipopt")
     assert sol.success
     assert abs(sol.objective) < 1e-8          # optimum: every x[i] = 1
     assert abs(sol[x][0] - 1.0) < 1e-6        # read-back through the tape handle
