@@ -42,6 +42,12 @@ def _configure_runtime():
     """
     import os
     os.environ.setdefault("PYTHON_JULIACALL_STARTUPFILE", "no")
+    # Let Julia install its signal handlers. Without this, Julia's GC safepoint
+    # signals arrive at CPython unhandled and kill the process mid-suite
+    # (observed: SIGTRAP on macOS arm64 under Python 3.13 in CI; juliacall
+    # documents this setting for exactly that failure mode). The cost is that
+    # Ctrl-C is handled by Julia while the backend is active.
+    os.environ.setdefault("PYTHON_JULIACALL_HANDLE_SIGNALS", "yes")
 
 
 def _satisfies(version, bound):
