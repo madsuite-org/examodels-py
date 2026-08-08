@@ -60,7 +60,12 @@ def test_python_dependencies_are_only_what_we_declare():
             line = line.strip()
             if line.startswith(("import ", "from ")) and not line.split()[1].startswith("."):
                 imported.add(line.split()[1].split(".")[0])
-    stdlib = set(sys.stdlib_module_names)
+    # stdlib_module_names is 3.10+, and this package claims 3.9
+    stdlib = set(getattr(sys, "stdlib_module_names", ())) or set(sys.builtin_module_names) | {
+        "os", "sys", "re", "io", "math", "cmath", "json", "types", "typing", "dis",
+        "pathlib", "runpy", "subprocess", "textwrap", "shutil", "time", "importlib",
+        "collections", "dataclasses", "tomllib", "warnings", "itertools", "functools",
+    }
     allowed = required | optional | {"juliapkg"}
     third_party = imported - stdlib - {"examodels"}
     assert third_party <= allowed, \

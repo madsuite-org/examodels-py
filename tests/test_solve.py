@@ -1,9 +1,9 @@
 """End-to-end: build the Luksan-Vlcek problem in Python and solve it."""
 import numpy as np
 import pytest
+from conftest import requires
 
 import examodels as exa
-from conftest import requires
 
 N = 10
 
