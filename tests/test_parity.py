@@ -61,10 +61,11 @@ SURFACE = {
     # -- needs Julia ---------------------------------------------------------
     "@register_univariate": (JULIA, "registering an operator needs a Julia function"),
     "@register_bivariate": (JULIA, "registering an operator needs a Julia function"),
-    # -- the backend's own deprecated API ------------------------------------
-    **dict.fromkeys(
-        ("LegacyExaCore", "variable", "parameter", "constraint!", "subexpr"),
-        (LEGACY, "deprecated in the backend (deprecated.jl)")),
+    # The backend's deprecated mutating API — LegacyExaCore, variable,
+    # parameter, constraint!, subexpr — was removed upstream in
+    # exanauts/ExaModels.jl#295, along with deprecated.jl itself, so there is
+    # nothing left here to classify. The LEGACY category is kept for whatever
+    # is deprecated next.
     "ExaModels": (INTERNAL, "the module itself"),
     # -- nonlinear oracles ---------------------------------------------------
     "VectorNonlinearOracle": (SUPPORTED, "exa.VectorNonlinearOracle"),
