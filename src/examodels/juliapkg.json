@@ -4,7 +4,7 @@
         "ExaModels": {
             "uuid": "1037b233-b668-4ce9-9b63-f9f681f55dd2",
             "url": "https://github.com/exanauts/ExaModels.jl",
-            "rev": "ss/refactor"
+            "rev": "main"
         },
         "NLPModels": {
             "uuid": "a4795742-8479-5a88-8948-cc11e1c8c1a6",
