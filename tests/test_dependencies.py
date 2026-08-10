@@ -10,9 +10,19 @@ ROOT = pathlib.Path(examodels.__file__).parent
 
 
 def test_declared_backend_range_is_the_one_installed():
-    """The version the package declares must be the version it is actually running."""
+    """The version the package declares must be the version it is actually running.
+
+    A backend pinned to a revision rather than a release has no version to
+    compare against -- the pin already decides what is installed -- so the check
+    is that the pin is the thing that is declared.
+    """
     installed = _b.version
     declared = _b._compat()
+    if declared is None:
+        spec = json.loads((ROOT / "juliapkg.json").read_text())
+        assert spec["packages"]["ExaModels"].get("rev"), \
+            "the backend has neither a version bound nor a pinned revision"
+        return
     assert installed.startswith(declared + "."), \
         f"declared {declared}, running {installed} -- the compat bound is not being enforced"
 
@@ -77,7 +87,10 @@ def test_backend_requirements_are_declared_in_one_place():
     spec = json.loads((ROOT / "juliapkg.json").read_text())
     assert set(spec["packages"]) >= {"ExaModels", "NLPModels"}
     for name, entry in spec["packages"].items():
-        assert entry.get("version"), f"{name} has no version bound"
+        # A revision pin is as explicit as a version bound, and is what a
+        # package needs while the feature it depends on is unreleased.
+        assert entry.get("version") or entry.get("rev"), \
+            f"{name} has neither a version bound nor a pinned revision"
 
 
 def test_only_the_bridge_touches_juliacall():

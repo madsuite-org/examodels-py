@@ -38,6 +38,11 @@ def _index_set(over):
     comes back as a `StepRange`, which several of the backend's size and dispatch
     paths reject, so the iterator is constructed on the backend side.
     """
+    from .recipe import SRange
+    if isinstance(over, SRange):
+        # Bounds may be placeholders, so the length is unknown here; the backend
+        # sizes the block when the model is built.
+        return (over._jl(),), None
     if isinstance(over, range):
         if over.step != 1:
             # A stepped range is a fine index *set* -- it is just a list of indices.
@@ -56,6 +61,11 @@ def _index_set(over):
 
 
 def _data(v, what):
+    from .recipe import Arg
+    if isinstance(v, Arg):
+        # A placeholder is data supplied at build time; it passes through as the
+        # backend node it stands for, and is sized when the model is built.
+        return v._jl
     if callable(v):
         raise TypeError(
             f"{what} is data, not an expression: pass a number or an array. It is "
@@ -192,12 +202,23 @@ class Core:
     #: set by TwoStageCore; a plain core has none
     nscen = 0
 
-    def __init__(self, backend=None, minimize=True):
+    def __init__(self, backend=None, minimize=True, nargs=0):
         resolved = _backend(backend)
         kw = {"backend": resolved} if resolved is not None else {}
         if not minimize:
             kw["minimize"] = False
-        self._core = _b.guard(_b.EM.ExaCore, concrete=_b.valtrue, **kw)
+        if nargs:
+            # `ExaCore(nargs = Val(k))` returns the core followed by k
+            # placeholders. Taken apart here: a Julia tuple indexed from Python
+            # would be 1-based, and every index in this package is 0-based.
+            from .recipe import Arg
+            got = _b.guard(_b.core_with_args, nargs, concrete=_b.valtrue, **kw)
+            self._core = _b.at(got, 0)
+            self.args = tuple(Arg(_b.at(got, i + 1)) for i in range(nargs))
+        else:
+            self._core = _b.guard(_b.EM.ExaCore, concrete=_b.valtrue, **kw)
+            #: placeholders, when built with `nargs=`; empty otherwise
+            self.args = ()
         self._named = {}
 
     def _add(self, fn, *args, **kwargs):
@@ -249,9 +270,25 @@ class Core:
                     f"a dimension cannot have a step ({d}); the backend defines "
                     f"lengths only for whole ranges. Declare the whole range and "
                     f"use the stepped one as an index set instead")
+        from .recipe import Arg
+        if len(dims) == 1 and isinstance(dims[0], Arg):
+            # A placeholder dimension cannot be turned into a `range` here: its
+            # value is not known yet. The 0-based range is described to the
+            # backend instead, and built when the model is.
+            kw = {"start": _data(start, "start")}
+            if lvar is not None:
+                kw["lvar"] = _data(lvar, "lvar")
+            if uvar is not None:
+                kw["uvar"] = _data(uvar, "uvar")
+            if tag is not None:
+                kw["tag"] = _b.unwrap(tag)
+            self._named_kw(name, kw)
+            block = Block(self._add(_b.add_var_arg, 0, dims[0]._jl, **kw), (dims[0],))
+            return self._remember(name, block)
         if not dims or not all(isinstance(d, (int, range)) for d in dims):
             raise TypeError("give one integer or range per dimension, "
-                            "e.g. add_var(T, N) or add_var(range(2, 11))")
+                            "e.g. add_var(T, N) or add_var(range(2, 11)); a "
+                            "placeholder from Core(nargs=...) may be used alone")
         # The backend dimension is declared with the caller's own bounds -- an
         # integer `n` means `0:n-1`, a `range(a, b)` means `a:b-1`. Nothing is
         # shifted anywhere: an index is a number the caller chose, so it reads the
@@ -386,8 +423,13 @@ class Core:
         # numbers a constraint block's rows from 1 whatever the index set was (it
         # takes their count, not their labels). So the label has to be mapped back
         # to a position: an index set starting at `a` puts label `a` in row 1.
+        from .recipe import SRange
         start = over.start if isinstance(over, range) else 0
-        return self._remember(name, Constraint(con, len(over), 1 - start))
+        # An `srange` has placeholder bounds, so the row count is not known here.
+        # `nrows=None` says "ask the model" rather than inventing a number; the
+        # backend has the real count once the model is built.
+        nrows = None if isinstance(over, SRange) else len(over)
+        return self._remember(name, Constraint(con, nrows, 1 - start))
 
     def _augment(self, constraint, f, over):
         f, over = _as_function(f, over)

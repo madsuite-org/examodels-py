@@ -27,6 +27,9 @@ SURFACE = {
     # -- construction -------------------------------------------------------
     "ExaCore": (SUPPORTED, "exa.Core"),
     "ExaModel": (SUPPORTED, "exa.Model"),
+    # -- recipes: a core written against placeholders, given its data later --
+    "ArgSource": (SUPPORTED, "exa.Core(nargs=...) / exa.recipe"),
+    "instantiate": (SUPPORTED, "exa.Model(core, *values)"),
     "add_var": (SUPPORTED, "Core.add_var"),
     "add_par": (SUPPORTED, "Core.add_par"),
     "add_obj": (SUPPORTED, "Core.add_obj"),

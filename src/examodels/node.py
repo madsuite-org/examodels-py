@@ -203,10 +203,17 @@ class Constraint:
         self.row_offset = row_offset
 
     def __len__(self):
+        if self._n is None:
+            raise TypeError(
+                "this constraint block was written over a placeholder index set, "
+                "so its row count is not known until the model is built — read it "
+                "from the model (`model.ncon`) instead."
+            )
         return self._n
 
     def __repr__(self):
-        return f"<constraint block of {self._n}>"
+        return ("<constraint block, sized when the model is built>"
+                if self._n is None else f"<constraint block of {self._n}>")
 
 class Expression:
     """A reusable subexpression.

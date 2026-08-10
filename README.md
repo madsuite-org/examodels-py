@@ -80,6 +80,58 @@ exa.install_solver("madnlp")     # CPU or GPU
 exa.available_solvers()          # ['ipopt', 'madnlp']
 ```
 
+## Recipes: one model, any size — and a shared library
+
+A `Core` is normally built from data you already have, so the model and its data
+are finished together. Ask for placeholders instead and the two come apart:
+
+```python
+core, N, x0 = exa.recipe(nargs=2)          # or: exa.Core(nargs=2), then core.args
+x = core.add_var(N, start=x0)
+core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
+             over=exa.srange(1, N))
+
+exa.Model(core, 10, [-1.2] * 10)           # one value per placeholder, in order
+exa.Model(core, 10_000, [-1.2] * 10_000)   # the same core, again
+```
+
+A placeholder is used *as the value it stands for* — `N` is the number of
+variables, not a namespace to reach into — and arithmetic on it is deferred, so
+`N - 1` and `srange(1, N)` describe sizes that are computed when the model is
+built. `srange` is half-open like `range`, and exists only because `range`
+demands integers the moment a bound is symbolic.
+
+Anything that needs a real value has to be computed before building and passed
+in: `len(N)`, `int(N)`, `if N > 3` and iteration all raise, naming the fix. A
+placeholder that quietly satisfied `__index__` would give you a model whose
+shape depended on a value nobody had supplied, and the failure would surface far
+from its cause.
+
+### Why it exists
+
+Ahead-of-time compilation needs the *structure* to become code while the *data*
+stays a run-time input. Writing a model against placeholders is that separation,
+so a recipe that builds and instantiates can be compiled — you never have to
+work out which modelling constructs survive trimming:
+
+```python
+exa.install_compiler()                     # once per environment
+lib = exa.compile_library(core, "rosenrock", arg=10)
+```
+
+The result is a shared library behind a plain C interface, which
+[cnlpmodels](https://github.com/MadNLP/cnlpmodels-py) loads with ctypes and
+numpy — no Julia in the process — and
+[CNLPModels.jl](https://github.com/MadNLP/CNLPModels.jl) loads from Julia.
+Given a bare name rather than a path, the library is installed on the
+`CNLPMODELS_PATH` search path, where both find it by that name.
+
+Compiling needs a backend able to run it, which today means **Julia 1.12**. The
+Julia version is chosen by `juliapkg`, which caps it at 1.11 when the Python
+process links OpenSSL older than 3.5 — Julia 1.12 requires 3.5. A system Python
+on an older OpenSSL therefore gets recipes but not compilation; a conda-forge
+Python (or any build on OpenSSL >= 3.5) gets both, with nothing to configure.
+
 ## Parameters and subexpressions
 
 ```python

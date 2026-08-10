@@ -24,10 +24,17 @@ class Model:
     backend gains a field.
     """
 
-    def __init__(self, core):
+    def __init__(self, core, *args):
+        """`Model(core)`, or `Model(core, *values)` for a core built with
+        `nargs=` — one value per placeholder, in the order they were returned."""
         from .core import Core
+        from .recipe import _unwrap
         if isinstance(core, Core):
-            self._jl = _b.guard(_b.EM.ExaModel, core._core)
+            if args:
+                self._jl = _b.guard(
+                    _b.model_with_args, core._core, *[_unwrap(a) for a in args])
+            else:
+                self._jl = _b.guard(_b.EM.ExaModel, core._core)
             self._named = dict(getattr(core, "_named", {}))
         else:
             self._jl, self._named = core, {}

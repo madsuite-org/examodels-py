@@ -19,6 +19,8 @@ REQUIRED = (
     "ExaCore", "ExaModel", "add_var", "add_par", "add_obj", "add_con",
     "DataSource", "Constant", "obj", "solution", "get_value", "set_value!",
     "_UNIVARIATES", "_BIVARIATES", "fulltype_display!",
+    # recipes: a core built against placeholders, instantiated later
+    "ArgSource", "instantiate",
 )
 
 
@@ -26,7 +28,9 @@ def _compat():
     """The backend version range this package declares — read from the one place
     it is written down, so the runtime check and the installer cannot disagree."""
     spec = json.loads((Path(__file__).parent / "juliapkg.json").read_text())
-    return spec["packages"]["ExaModels"]["version"]
+    # A git-pinned backend has a `rev` rather than a `version`; there is nothing
+    # to check in that case, because the pin already decides what is installed.
+    return spec["packages"]["ExaModels"].get("version")
 
 
 def _configure_runtime():
@@ -53,11 +57,11 @@ def _check(jl):
     version = str(jl.seval("string(pkgversion(ExaModels))"))
     want = _compat()
     got = tuple(int(p) for p in version.split("-")[0].split("."))
-    ok = any(_satisfies(got, bound.strip()) for bound in want.split(","))
+    ok = want is None or any(_satisfies(got, bound.strip()) for bound in want.split(","))
     if missing or not ok:
         raise RuntimeError(
             f"the ExaModels backend in this environment (version {version}) is not the "
-            f"one this package supports (declared: {want})"
+            f"one this package supports (declared: {want if want else 'a pinned revision'})"
             + (f"; missing: {', '.join(missing)}" if missing else "")
             + ". Reinstall the backend, or upgrade `examodels`."
         )
@@ -138,6 +142,29 @@ def _boot():
         # them). So the range is built inside each call that consumes it. Vectors
         # -- what a table of rows becomes -- do not convert, and pass through fine.
         gen_range=jl.seval("(node, a, b) -> Base.Generator(_ -> node, UnitRange(a, b))"),
+        # ── recipes ──────────────────────────────────────────────────────────
+        # `ExaCore(nargs = Val(k))` hands back the core followed by k
+        # placeholders. The tuple is taken apart on this side because a Julia
+        # tuple indexed from Python would be 1-based, and every index in this
+        # package is 0-based.
+        core_with_args=jl.seval(
+            "(k; kw...) -> ExaModels.ExaCore(; nargs = Val(Int(k)), kw...)"),
+        at=jl.seval("(t, i) -> t[i + 1]"),
+        model_with_args=jl.seval("(c, args...) -> ExaModels.ExaModel(c, args...)"),
+        # A placeholder dimension cannot go through `add_var_dims`: that builds
+        # `UnitRange(Int(l), Int(h))`, and `Int` of a deferred value is not a
+        # number yet. `lo:(n - 1)` is deferred instead and becomes the same
+        # 0-based range once the size is known.
+        add_var_arg=jl.seval(
+            "(c, lo, n; kw...) -> ExaModels.add_var(c, lo:(n - 1); kw...)"),
+        arg_range=jl.seval("(a, b) -> a:(b - 1)"),
+        # The compiler lives in a separate backend package, loaded on demand so
+        # that importing this one never pulls in a compiler toolchain.
+        compile_library=jl.seval("""(c, out; kw...) -> begin
+            @eval Main import ExaModelsC
+            Base.invokelatest(Main.ExaModelsC.compile_library, c, out; kw...)
+        end"""),
+        at_field=jl.seval("(nt, f) -> getfield(nt, Symbol(f))"),
         gen_iter=jl.seval("(node, itr) -> Base.Generator(_ -> node, itr)"),
         # A product index set: several ranges, again built here rather than handed
         # across the boundary.

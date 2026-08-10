@@ -45,6 +45,8 @@ from .advanced import (
     timings,
 )
 from .core import Core, backends, install_backend, trace
+from .compile import compile_library, compiler_available, install_compiler
+from .recipe import Arg, is_placeholder, recipe, srange
 from .model import Model, Solution
 from .node import (
     Block,
@@ -102,6 +104,13 @@ def solution(result, block):
 __version__ = "0.1.0"
 
 __all__ = [
+    "Arg",
+    "compile_library",
+    "compiler_available",
+    "install_compiler",
+    "is_placeholder",
+    "recipe",
+    "srange",
     "Core", "Model", "Solution", "Block", "Constraint", "Expression",
     "Product", "product", "Node", "TupleNode", "Constant", "sum", "prod",
     "trace", "available_solvers", "install_solver", "solution",
