@@ -44,9 +44,8 @@ from .advanced import (
     new_tag,
     timings,
 )
-from .core import Core, backends, install_backend, trace
 from .compile import compile_library, compiler_available, install_compiler
-from .recipe import Arg, is_placeholder, recipe, srange
+from .core import Core, backends, install_backend, trace
 from .model import Model, Solution
 from .node import (
     Block,
@@ -59,6 +58,7 @@ from .node import (
     prod,
     sum,
 )
+from .recipe import Arg, is_placeholder, recipe, srange
 from .solve import available_solvers, install_solver, solve
 
 
