@@ -118,10 +118,14 @@ def new_tag(name, kind="variable"):
                   "constraint": "AbstractConstraintTag"}[kind]
     except KeyError:
         raise ValueError(f"kind must be 'variable' or 'constraint', got {kind!r}") from None
+    # The type is defined and then used in the same evaluation, so the binding is
+    # reached in a world older than the one that defines it. Julia 1.12 tightened
+    # that from a warning to an error, and `invokelatest` is the sanctioned way
+    # to say "in whatever world exists by the time this runs".
     return _b.seval(f"""begin
         isdefined(Main, :{name}) ||
             Core.eval(Main, :(struct {name} <: ExaModels.{super_} end))
-        Main.{name}()
+        Base.invokelatest(() -> Main.{name}())
     end""")
 
 
