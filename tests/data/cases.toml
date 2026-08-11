@@ -1,0 +1,38 @@
+# Benchmark cases both interfaces must reproduce.
+#
+# `source` records where each expected value comes from, because it changes what a
+# mismatch means:
+#   "published"  — printed in the case file's own header; a mismatch is a bug.
+#   "regression" — computed by this suite and pinned; a mismatch is a change, which
+#                  may be a bug or may be an improvement, but is never silent.
+#
+# Kept as a table rather than inline in the tests so that adding a case is data,
+# not code, and so the provenance of each number stays attached to it.
+
+[[case]]
+name = "pglib_opf_case3_lmbd"
+buses = 3
+generators = 3
+branches = 3
+objective = 5812.64
+rtol = 1e-5
+source = "published"
+
+[[case]]
+name = "pglib_opf_case118_ieee"
+buses = 118
+generators = 54
+branches = 186
+objective = 97213.61
+rtol = 1e-5
+source = "regression"
+
+[[case]]
+name = "pglib_opf_case2869_pegase"
+buses = 2869
+generators = 510
+branches = 4582
+objective = 2462790.43
+rtol = 1e-5
+source = "regression"
+large = true

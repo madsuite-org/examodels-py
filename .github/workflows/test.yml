@@ -1,0 +1,199 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 5 * * 1"          # weekly, to catch drift in the backend
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # juliapkg downloads its own Julia and resolves the backend into the
+      # environment; both are worth caching, since together they are ~300 MB.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.julia
+            .venv/julia_env
+          key: julia-${{ runner.os }}-${{ hashFiles('src/examodels/juliapkg.json') }}
+
+      - run: pip install -e ".[test]"
+
+      # Solvers are optional dependencies, installed on request. Without one the
+      # suite would skip almost everything, so CI asks for it explicitly.
+      - name: install a solver
+        run: python -c "import examodels; examodels.install_solver('ipopt')"
+
+      - name: which backend is under test
+        run: python -c "from examodels import _bridge as b; print(b.version, b.seval('pathof(ExaModels)'))"
+
+      # The backend has been killing the process outright -- SIGSEGV on Linux,
+      # SIGTRAP or SIGABRT on macOS, at whichever call happened to be running.
+      # An exit code is not something anyone can debug, so ask the OS to keep a
+      # core, and read it back below if this step dies.
+      - name: run the tests
+        env:
+          # The macOS abort is heap corruption detected inside the backend's
+          # JIT, an upstream embedded-runtime bug this suite only witnesses.
+          # Without the nano zone its guard check (SIGABRT) goes away -- probe
+          # run 31450599549 measured baseline 2/8 aborts, julia-1.10 pin 1/8,
+          # MallocNanoZone=0 0/8, then 0/16 more in run 31493159926 -- but the
+          # other zones can still trip over the same corruption (SIGTRAP,
+          # "memory corruption of free block"), just more rarely. No-op on
+          # Linux.
+          MallocNanoZone: "0"
+        run: |
+          # Neither of these is allowed to decide whether the tests run.
+          cov=""
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo sysctl -w kernel.core_pattern=/tmp/core.%e.%p > /dev/null || true
+            # Coverage is measured where the suite is stable; the macOS jobs
+            # exist to catch platform breakage, not to gather lines.
+            cov="--cov=examodels --cov-report=xml"
+          fi
+          ulimit -c unlimited || true
+          # The backend crash is a signal, never a test outcome, so only the
+          # crash-signal exits are retried: 133 SIGTRAP / 134 SIGABRT (macOS),
+          # 139 SIGSEGV (Linux). A failing TEST exits 1 and fails on the first
+          # attempt, exactly as before; a deterministic crash still fails
+          # after three. Each retry is announced, so the flake stays countable
+          # in the annotations rather than silently absorbed.
+          attempt=1
+          while :; do
+            set +e
+            pytest -q -m "not slow" $cov
+            status=$?
+            set -e
+            case $status in
+              133|134|139) ;;
+              *) break ;;
+            esac
+            if [ $attempt -ge 3 ]; then break; fi
+            echo "::warning title=backend crash (attempt $attempt)::pytest died with crash-signal exit $status; retrying"
+            attempt=$((attempt+1))
+          done
+          exit $status
+
+      # Codecov refuses tokenless uploads to this repo's default branch
+      # ("Token required because branch is protected"), so the report only
+      # lands once CODECOV_TOKEN exists in the repo secrets; until then the
+      # secret expands empty and this step is a no-op that hurts nothing.
+      # Best-effort by policy: a coverage outage must not be able to fail the
+      # suite it is reporting on.
+      - name: upload coverage
+        if: runner.os == 'Linux'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          fail_ci_if_error: false
+
+      # Only on a failure, and best-effort throughout: a crash report that cannot
+      # be collected must not be able to hide the failure that produced it.
+      - name: what the crash was
+        if: failure()
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # ReportCrash writes the .ips a moment after the process dies.
+            sleep 15
+            found=
+            for d in "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports; do
+              for f in "$d"/*.ips "$d"/*.crash; do
+                [ -e "$f" ] || continue
+                found=yes
+                echo "===== $f"
+                cat "$f"
+              done
+            done
+            [ -n "$found" ] || echo "no crash report found (the job may have failed without crashing)"
+          else
+            found=
+            for c in /tmp/core.*; do
+              [ -e "$c" ] || continue
+              found=yes
+              sudo apt-get install -y -qq gdb > /dev/null 2>&1
+              echo "===== $c"
+              gdb -batch -ex "thread apply all bt" "$(which python)" "$c" 2>&1 | tail -120
+            done
+            [ -n "$found" ] || echo "no core found (the job may have failed without crashing)"
+          fi
+
+  examples:
+    # A broken example shipped once because nothing ran them.
+    name: examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.julia
+            .venv/julia_env
+          key: julia-examples-${{ hashFiles('src/examodels/juliapkg.json') }}
+      - run: pip install -e ".[test]"
+      - run: python -c "import examodels; examodels.install_solver('ipopt')"
+
+      # one small benchmark case, so the OPF example is actually exercised
+      - name: fetch a PGLib case
+        run: |
+          mkdir -p "$HOME/pglib"
+          curl -sSfL -o "$HOME/pglib/pglib_opf_case3_lmbd.m" \
+            https://raw.githubusercontent.com/power-grid-lib/pglib-opf/master/pglib_opf_case3_lmbd.m
+
+      - run: pytest tests/test_examples.py -q
+        env:
+          PGLIB_DIR: ${{ env.HOME }}/pglib
+          PGLIB_CASE: ${{ env.HOME }}/pglib/pglib_opf_case3_lmbd.m
+
+  interface:
+    # A fast gate on the thing most likely to break: the backend's exported
+    # interface. Runs on its own so a failure here is unambiguous.
+    name: backend interface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.julia
+            .venv/julia_env
+          key: julia-interface-${{ hashFiles('src/examodels/juliapkg.json') }}
+      - run: pip install -e ".[test]"
+      - run: python -c "import examodels; examodels.install_solver('ipopt')"
+      - run: pytest tests/test_parity.py tests/test_dependencies.py -q -s
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "ruff==0.16.2"
+      - run: ruff check src tests examples
