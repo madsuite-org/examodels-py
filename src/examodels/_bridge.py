@@ -225,6 +225,12 @@ def _boot():
         obj_iter=jl.seval("(c, e, itr; kw...) -> ExaModels.add_obj(c, e, itr; kw...)"),
         getfield_=jl.seval("(n, s) -> getproperty(n, Symbol(s))"),
         int_vector=jl.seval("v -> Int64[Int(i) for i in v]"),
+        # An example value decides the STORAGE the compiler emits, so it has to
+        # arrive as the Julia type that storage will have: a numpy array comes
+        # across as a PyArray, which is not a type a library can be compiled
+        # around, and the compiler refuses it by name.
+        vec_f64=jl.seval("v -> Vector{Float64}(v)"),
+        vec_i64=jl.seval("v -> Vector{Int64}(v)"),
         exa_sum=jl.seval("ns -> ExaModels.SumNode(Tuple(ns))"),
         exa_prod=jl.seval("ns -> ExaModels.ProdNode(Tuple(ns))"),
         # Evaluation buffers must live wherever the model's arrays live, so they

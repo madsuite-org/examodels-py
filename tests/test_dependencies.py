@@ -98,9 +98,33 @@ def test_backend_requirements_are_declared_in_one_place():
 
 
 def test_only_the_bridge_touches_juliacall():
-    """Exactly one module may import the interop layer."""
-    offenders = [f.name for f in ROOT.glob("*.py")
-                 if "juliacall" in f.read_text() and f.name != "_bridge.py"]
+    """Exactly one module may import the interop layer.
+
+    Read as imports rather than as text: the rule is about what a module
+    IMPORTS, and matching the bare word made a comment that merely explains
+    juliacall's wrappers indistinguishable from a module that reaches for them.
+    A dynamic import spelled through a variable would slip past the parse, so
+    the textual form is still checked for the module named as a literal.
+    """
+    import ast
+
+    offenders = []
+    for f in ROOT.glob("*.py"):
+        if f.name == "_bridge.py":
+            continue
+        tree = ast.parse(f.read_text())
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names.add(node.module.split(".")[0])
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                # `import_module("juliacall")` and friends
+                if node.value.split(".")[0] == "juliacall":
+                    names.add("juliacall")
+        if "juliacall" in names:
+            offenders.append(f.name)
     assert not offenders, f"juliacall imported outside the bridge: {offenders}"
 
 

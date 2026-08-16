@@ -46,6 +46,8 @@ through this package, once per environment — the same arrangement as solvers.
 """
 
 
+import re as _re
+
 from . import _bridge as _b
 
 __all__ = ["compile_library", "compiler_available", "install_compiler", "CompiledLibrary"]
@@ -107,16 +109,103 @@ def compiler_available():
     return bool(_b.seval(f'Base.find_package("{COMPILER["name"]}") !== nothing'))
 
 
+#: Why a Python caller cannot supply `argfun`, and what to do instead. The
+#: compiler resolves the function BY NAME from the generated library, so it must
+#: belong to a package -- a lambda, a closure, and anything built at run time
+#: through the bridge are all refused by it, at spec time, whatever this package
+#: does. Python callers want the other route anyway: their data is already in
+#: Python, so passing it across the boundary costs them nothing.
+_ARGFUN_HELP = (
+    "argfun cannot be {what}: the compiled library calls it by name in a "
+    "process with no Python in it, and the compiler accepts only a named "
+    "function defined at the top level of a Julia PACKAGE (not a lambda, not "
+    "one built with seval). Pass the data as example values instead -- "
+    "`compile_library(out, core, n, table)` -- which needs no Julia: scalars, "
+    "arrays and tables of them all cross the boundary, and the consumer then "
+    "supplies them per instance. Use argfun only for data that must stay on "
+    "the Julia side, and give it a function from an installed package."
+)
+
+
+#: A package-qualified Julia function name, and nothing else -- it is evaluated
+#: as source, so it is checked the way `new_tag` checks a tag name.
+_ARGFUN_NAME = _re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$")
+
+
+def _named_argfun(path):
+    """`"ExaPowerIO.parse_case"` -> that function, so Python need not write Julia.
+
+    The compiler needs a named function belonging to a package. NAMING one is
+    something a Python caller can do without knowing the language, which
+    writing one is not -- so a string is resolved here rather than refused.
+    """
+    if not _ARGFUN_NAME.match(path):
+        raise ValueError(
+            f"argfun as a string must name a function in a package, qualified "
+            f"by it -- 'ExaPowerIO.parse_case'. Got {path!r}.")
+    root = path.split(".")[0]
+    try:
+        return _b.seval(f"import {root}; {path}")
+    except Exception:                                        # noqa: BLE001
+        raise _b.ModelError(
+            f"no function {path!r} is available: is {root!r} installed in this "
+            f"environment? Backend packages are installed through juliapkg, the "
+            f"way `install_solver` and `install_compiler` do it."
+        ) from None
+
+
+def _example(name, v):
+    """One example instantiation value, as the type its storage will have.
+
+    The compiler emits storage of exactly the example's Julia type, so a numpy
+    array must arrive as a `Vector{Float64}` (or `{Int64}`) and a table of rows
+    as a vector of named tuples. Left alone, both cross as the wrappers
+    juliacall makes of them, which the compiler refuses -- correctly, since no
+    library can be compiled around a live Python object.
+    """
+    import numpy as np
+
+    from .node import _table, is_table
+    from .recipe import Arg
+    if isinstance(v, Arg):
+        return v._jl
+    if isinstance(v, (bool, np.bool_)):
+        raise TypeError(
+            f"model {name!r}: an example may be a number, an array of numbers, "
+            f"or a table of them -- the C boundary carries 64-bit integers and "
+            f"floats. A bool is neither; say 0 or 1 if that is what is meant.")
+    if isinstance(v, (int, np.integer)):
+        return int(v)
+    if isinstance(v, (float, np.floating)):
+        return float(v)
+    if isinstance(v, str):
+        return v                       # a string reaches argfun, never storage
+    if is_table(v):
+        jl, _n = _table(v)
+        return jl
+    a = np.asarray(v)
+    if a.ndim != 1:
+        raise TypeError(
+            f"model {name!r}: an array example must be one-dimensional; got "
+            f"shape {a.shape}. Flatten it, or pass a table of rows.")
+    if a.dtype.kind in "iu":
+        return _b.vec_i64(a)
+    if a.dtype.kind == "f":
+        return _b.vec_f64(a)
+    raise TypeError(
+        f"model {name!r}: an example of dtype {a.dtype} cannot cross the C "
+        f"boundary, which carries 64-bit integers and floats.")
+
+
 def _spec(name, value):
     """One `name => core, examples...` model, from what the caller wrote."""
     from .core import Core
-    from .recipe import _unwrap
     core, args = (value[0], tuple(value[1:])) if isinstance(value, tuple) else (value, ())
     if not isinstance(core, Core):
         raise TypeError(
             f"model {name!r}: expected a Core, or a tuple (core, *examples); "
             f"got {type(core).__name__}")
-    return core._core, [_unwrap(a) for a in args]
+    return core._core, [_example(name, a) for a in args]
 
 
 def compile_library(out, models, *examples, prefix=None, trim="safe", bundle=False,
@@ -138,21 +227,24 @@ def compile_library(out, models, *examples, prefix=None, trim="safe", bundle=Fal
     80 MB, needing no Julia at the far end, and the only form loadable from
     Julia itself.
 
-    `trim` is passed to the compiler as its trimming mode; `argfun` is a *Julia*
-    function that turns the examples into the tuple the core is instantiated
-    with, for a model whose data cannot cross the boundary.
+    `trim` is passed to the compiler as its trimming mode.
+
+    `argfun` is for a model whose data should NOT cross the C boundary: the
+    library carries the function, is handed one string or integer, and calls it
+    to obtain the instantiation values. It has to be a named function belonging
+    to a Julia package, so it is not reachable from Python -- pass the data as
+    example values instead, which is the Python-native route and needs no Julia
+    at all. See `_ARGFUN_HELP`.
     """
     if not compiler_available():
         raise RuntimeError(
             "the compiler backend is not installed in this environment; run "
             "`examodels.install_compiler()` once (it needs a network)."
         )
-    if callable(argfun) and not _b.is_julia(argfun):
-        raise TypeError(
-            "argfun must be a Julia function: it is compiled into the library "
-            "and called there, where no Python interpreter exists. Build one "
-            "with `examodels._bridge.seval(\"...\")`."
-        )
+    if isinstance(argfun, str):
+        argfun = _named_argfun(argfun)
+    elif argfun is not None and not _b.is_julia(argfun):
+        raise TypeError(_ARGFUN_HELP.format(what="a Python function"))
 
     kw = {"trim": str(trim), "bundle": bool(bundle), "verbose": bool(verbose)}
     if hasattr(models, "items"):

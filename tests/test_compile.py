@@ -95,9 +95,24 @@ def test_per_model_keywords_are_refused_for_several_models(backend, fixed_core):
         compile_library("lib", {"a": fixed_core}, 10)
 
 
-def test_a_python_argfun_cannot_be_compiled(backend, recipe_core):
-    with pytest.raises(TypeError, match="Julia function"):
+def test_a_python_argfun_is_refused_with_the_route_that_works(backend, recipe_core):
+    # Not a Julia-vs-Python nicety: the compiler resolves argfun BY NAME out of
+    # a package, so even a Julia function built through the bridge is refused
+    # (verified against the compiler itself). A Python caller wants the other
+    # route, and the message has to say so rather than send them round a loop.
+    with pytest.raises(TypeError) as e:
         compile_library("lib", recipe_core, 4, argfun=lambda n: (n,))
+    assert "no Python in it" in str(e.value)
+    assert "Pass the data as example values" in str(e.value)
+    assert "seval" in str(e.value)              # names the thing that also fails
+
+
+def test_a_non_callable_argfun_is_refused_too(backend, recipe_core):
+    # `callable()` was the old guard, so a non-callable slipped straight past
+    # it and reached the backend as a keyword it cannot use. (A string is not
+    # in this class: it NAMES a package function, and is resolved below.)
+    with pytest.raises(TypeError, match="no Python in it"):
+        compile_library("lib", recipe_core, 4, argfun=42)
 
 
 # --------------------------------------------------------- what is passed ----
@@ -192,3 +207,72 @@ def test_compiler_available_asks_without_importing(monkeypatch):
                         raising=False)
     assert compiler_available() is False
     assert asked == ['Base.find_package("ExaModelsCompiler") !== nothing']
+
+
+# ------------------------------------------------- examples as native data ---
+def test_examples_are_converted_to_the_types_their_storage_will_have(backend, recipe_core):
+    # The compiler emits storage of exactly the example's Julia type, so a
+    # numpy array must not arrive as the PyArray juliacall makes of it. The
+    # compiler refuses that by name, minutes into a build.
+    import numpy as np
+    compile_library("lib", recipe_core, 10, np.zeros(3), np.arange(3))
+    (_which, args, _kw), = backend
+    n, floats, ints = args[2]
+    assert isinstance(n, int)
+    assert _b.typestr(floats) == "Vector{Float64}"
+    assert _b.typestr(ints) == "Vector{Int64}"
+
+
+def test_a_table_example_crosses_as_named_rows(backend, recipe_core):
+    from collections import namedtuple
+    Row = namedtuple("Row", "bus load")
+    compile_library("lib", recipe_core, [Row(0, 1.5), Row(1, 2.5)])
+    (_which, args, _kw), = backend
+    assert "NamedTuple" in _b.typestr(args[2][0])
+
+
+@pytest.mark.parametrize("bad, match", [
+    (True, "A bool is neither"),
+    ([[1.0, 2.0], [3.0, 4.0]], "one-dimensional"),
+    (["a", "b"], "cannot cross the C boundary"),
+])
+def test_examples_that_cannot_cross_are_refused(backend, recipe_core, bad, match):
+    with pytest.raises(TypeError, match=match):
+        compile_library("lib", recipe_core, bad)
+
+
+def test_a_string_example_is_left_alone(backend, recipe_core):
+    # A string is what argfun is called WITH; it never becomes storage.
+    compile_library("lib", recipe_core, "case14.m", argfun="Pkg.dir")
+    (_which, args, _kw), = backend
+    assert args[2] == ["case14.m"]
+
+
+# --------------------------------------------------- argfun named by string --
+def test_an_argfun_can_be_named_rather_than_written(backend, recipe_core, monkeypatch):
+    seen = {}
+
+    def seval(code):
+        seen["code"] = code
+        return "JLFUNC"
+
+    monkeypatch.setattr(_b, "seval", seval, raising=False)
+    compile_library("lib", recipe_core, "case14.m", argfun="ExaPowerIO.parse_case")
+    assert seen["code"] == "import ExaPowerIO; ExaPowerIO.parse_case"
+    (_which, _args, kw), = backend
+    assert kw["argfun"] == "JLFUNC"
+
+
+@pytest.mark.parametrize("bad", ["parse_case", "Pkg.f(); rm(\"/\")", "", "A..b"])
+def test_an_argfun_name_must_be_a_qualified_identifier(backend, recipe_core, bad):
+    # It is evaluated as source, so it is checked before it is evaluated.
+    with pytest.raises(ValueError, match="name a function in a package"):
+        compile_library("lib", recipe_core, "x", argfun=bad)
+
+
+def test_a_missing_argfun_package_says_what_is_missing(backend, recipe_core, monkeypatch):
+    def boom(code):
+        raise RuntimeError("ArgumentError: Package NotHere not found")
+    monkeypatch.setattr(_b, "seval", boom, raising=False)
+    with pytest.raises(_b.ModelError, match="is 'NotHere' installed"):
+        compile_library("lib", recipe_core, "x", argfun="NotHere.load")
