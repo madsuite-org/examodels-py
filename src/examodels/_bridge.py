@@ -53,8 +53,30 @@ def _configure_runtime():
 
 
 def _satisfies(version, bound):
-    """Julia's caret semantics: the leading non-zero component must match."""
+    """Whether `version` satisfies one Julia compat bound.
+
+    Julia's spellings, all of which a `juliapkg.json` may carry: a bare or
+    `^`-prefixed bound is caret (the leading non-zero component must match),
+    `=` is exact, `~` allows the last stated component to grow, and `>=` is a
+    floor. An exact pin is what this package declares once the backend has a
+    registered release, so it is not an exotic case.
+    """
+    bound = bound.strip()
+    for prefix in (">=", "=", "^", "~"):
+        if bound.startswith(prefix):
+            op, bound = prefix, bound[len(prefix):].strip()
+            break
+    else:
+        op = "^"
     want = tuple(int(p) for p in bound.split("."))
+    if op == "=":
+        # `=0.12` admits 0.12.0: the unstated components are zero, not free.
+        return version == want + (0,) * (len(version) - len(want))
+    if op == ">=":
+        return version >= want
+    if op == "~":
+        keep = max(len(want) - 1, 1)
+        return version[:keep] == want[:keep] and version >= want
     lead = next((i for i, v in enumerate(want) if v), len(want) - 1)
     return version[: lead + 1] == want[: lead + 1] and version >= want
 
@@ -167,10 +189,26 @@ def _boot():
         arg_range=jl.seval("(a, b) -> a:(b - 1)"),
         # The compiler lives in a separate backend package, loaded on demand so
         # that importing this one never pulls in a compiler toolchain.
-        compile_library=jl.seval("""(c, out; kw...) -> begin
-            @eval Main import ExaModelsC
-            Base.invokelatest(Main.ExaModelsC.compile_library, c, out; kw...)
+        # The compiler takes the output name FIRST and the example values as
+        # trailing positionals; they arrive from Python as one list and are
+        # splatted here. Both forms go through `invokelatest` because the
+        # package is imported in the same call that uses it.
+        compile_library=jl.seval("""(out, c, args; kw...) -> begin
+            @eval Main import ExaModelsCompiler
+            Base.invokelatest(Main.ExaModelsCompiler.compile_library,
+                              out, c, args...; kw...)
         end"""),
+        # Several models in one library: parallel name/core/example lists,
+        # rebuilt here as the `:name => (core, args...)` pairs it wants.
+        compile_models=jl.seval("""(names, cores, argss, out; kw...) -> begin
+            @eval Main import ExaModelsCompiler
+            pairs = [Symbol(n) => (c, a...)
+                     for (n, c, a) in zip(names, cores, argss)]
+            Base.invokelatest(Main.ExaModelsCompiler.compile_library,
+                              out, pairs...; kw...)
+        end"""),
+        #: a Julia callable, as opposed to a Python one that cannot be compiled
+        is_julia=jl.seval("f -> f isa Function"),
         at_field=jl.seval("(nt, f) -> getfield(nt, Symbol(f))"),
         gen_iter=jl.seval("(node, itr) -> Base.Generator(_ -> node, itr)"),
         # A product index set: several ranges, again built here rather than handed

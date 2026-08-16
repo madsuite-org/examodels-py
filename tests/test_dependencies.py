@@ -23,7 +23,11 @@ def test_declared_backend_range_is_the_one_installed():
         assert spec["packages"]["ExaModels"].get("rev"), \
             "the backend has neither a version bound nor a pinned revision"
         return
-    assert installed.startswith(declared + "."), \
+    # Compared through the bound parser rather than by string prefix: a bound
+    # may be exact (`=0.12.0`), caret, tilde or a floor, and only `^0.12`-style
+    # bounds are a prefix of the version that satisfies them.
+    got = tuple(int(p) for p in installed.split("-")[0].split("."))
+    assert any(_b._satisfies(got, bound) for bound in declared.split(",")), \
         f"declared {declared}, running {installed} -- the compat bound is not being enforced"
 
 

@@ -53,7 +53,11 @@ SURFACE = {
        for n in ("get_value", "set_value!", "get_start", "set_start!",
                  "get_lvar", "set_lvar!", "get_uvar", "set_uvar!",
                  "get_lcon", "set_lcon!", "get_ucon", "set_ucon!")},
-    "set_parameter!": (SUPPORTED, "Model.set_value"),
+    # -- named blocks: the backend publishes them; Python keeps the same
+    # names reachable as attributes on the core and the built model
+    "get_vars": (SUPPORTED, "core.<name> / model.<name>"),
+    "get_cons": (SUPPORTED, "core.<name> / model.<name>"),
+    "get_pars": (SUPPORTED, "core.<name> / model.<name>"),
     # -- macros: Python spells these as generator expressions ---------------
     **dict.fromkeys(
         ("@add_var", "@add_par", "@add_obj", "@add_con", "@add_con!", "@add_expr"),
@@ -186,7 +190,7 @@ def test_every_supported_export_works():
 
 
 def test_set_value_is_the_parameter_setter():
-    """set_parameter! and set_value! reach the same thing from Python."""
+    """`Model.set_value` is the Python spelling of the backend's set_value!."""
     core = exa.Core()
     th = core.add_par([1.0])
     x = core.add_var(1, start=0.0)

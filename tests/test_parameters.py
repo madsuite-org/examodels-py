@@ -67,7 +67,7 @@ def test_matches_the_julia_parametric_model():
             mm = ExaModel(c)
             using NLPModelsIpopt
             o1 = ipopt(mm; print_level = 0).objective
-            set_parameter!(c, t, [200.0, 1.0])
+            set_value!(mm, t, [200.0, 1.0])
             o2 = ipopt(mm; print_level = 0).objective
             [o1, o2]
         end""")
