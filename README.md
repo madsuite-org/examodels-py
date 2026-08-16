@@ -119,15 +119,31 @@ work out which modelling constructs survive trimming:
 
 ```python
 exa.install_compiler()                     # once per environment
-lib = exa.compile_library(core, "rosenrock", arg=10)
+lib = exa.compile_library("@rosenrock", core, 10)   # 10: an example size
 ```
 
 The result is a shared library behind a plain C interface, which
 [cnlpmodels](https://github.com/MadNLP/cnlpmodels-py) loads with ctypes and
 numpy — no Julia in the process — and
 [CNLPModels.jl](https://github.com/MadNLP/CNLPModels.jl) loads from Julia.
-Given a bare name rather than a path, the library is installed on the
+Given `"@name"` rather than a path, the library is installed on the
 `CNLPMODELS_PATH` search path, where both find it by that name.
+
+A core with no placeholders is a **fixed** model — compile it with no example
+at all — and several models can share one library, each under its own name:
+
+```python
+lib = exa.compile_library("@grid", {"acopf": (ac_core, 100),
+                                    "dcopf": (dc_core, 100),
+                                    "small": fixed_core})
+lib.prefixes                               # ('acopf', 'dcopf', 'small')
+```
+
+They share the library file — and, in a bundle, its one privatized copy of the
+Julia runtime — so one compile amortises across all of them; the consumer
+selects by name. `bundle=True` carries that runtime and needs no Julia at the
+far end (and is the only form Julia itself can load); the default emits a small
+library linked against the Julia it was built with.
 
 Compiling needs a backend able to run it, which today means **Julia 1.12**. The
 Julia version is chosen by `juliapkg`, which caps it at 1.11 when the Python

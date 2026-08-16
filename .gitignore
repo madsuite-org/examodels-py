@@ -3,3 +3,10 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+.coverage
+coverage.xml
+
+# compiled model libraries, if a compile is run from the checkout
+*.so
+*.dylib
+*.dll

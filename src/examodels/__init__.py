@@ -44,7 +44,12 @@ from .advanced import (
     new_tag,
     timings,
 )
-from .compile import compile_library, compiler_available, install_compiler
+from .compile import (
+    CompiledLibrary,
+    compile_library,
+    compiler_available,
+    install_compiler,
+)
 from .core import Core, backends, install_backend, trace
 from .model import Model, Solution
 from .node import (
@@ -105,6 +110,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Arg",
+    "CompiledLibrary",
     "compile_library",
     "compiler_available",
     "install_compiler",

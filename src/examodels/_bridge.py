@@ -154,8 +154,8 @@ def _boot():
                                       sizeof(eltype(a)) == 8 ? "<f8" : "<f4")"""),
         wrap_device_ptr=jl.seval("""(p, n) -> begin
             @eval Main using CUDA
-            Base.invokelatest(Main.CUDA.unsafe_wrap, Main.CUDA.CuArray,
-                              reinterpret(Main.CUDA.CuPtr{Float64}, UInt(p)), Int(n))
+            Base.invokelatest(() -> Main.CUDA.unsafe_wrap(Main.CUDA.CuArray,
+                reinterpret(Main.CUDA.CuPtr{Float64}, UInt(p)), Int(n)))
         end"""),
         is_device=jl.seval("a -> !(a isa Array)"),
         val_symbol=jl.seval("s -> Val(Symbol(s))"),
@@ -191,12 +191,15 @@ def _boot():
         # that importing this one never pulls in a compiler toolchain.
         # The compiler takes the output name FIRST and the example values as
         # trailing positionals; they arrive from Python as one list and are
-        # splatted here. Both forms go through `invokelatest` because the
-        # package is imported in the same call that uses it.
+        # splatted here. The whole call -- the binding lookup as well as the
+        # call itself -- goes inside `invokelatest`, because the package is
+        # imported in the very call that uses it: Julia 1.12 warns that reading
+        # `Main.ExaModelsCompiler` in the world that created it will become an
+        # error, and passing the function as an argument reads it too early.
         compile_library=jl.seval("""(out, c, args; kw...) -> begin
             @eval Main import ExaModelsCompiler
-            Base.invokelatest(Main.ExaModelsCompiler.compile_library,
-                              out, c, args...; kw...)
+            Base.invokelatest(
+                () -> Main.ExaModelsCompiler.compile_library(out, c, args...; kw...))
         end"""),
         # Several models in one library: parallel name/core/example lists,
         # rebuilt here as the `:name => (core, args...)` pairs it wants.
@@ -204,8 +207,8 @@ def _boot():
             @eval Main import ExaModelsCompiler
             pairs = [Symbol(n) => (c, a...)
                      for (n, c, a) in zip(names, cores, argss)]
-            Base.invokelatest(Main.ExaModelsCompiler.compile_library,
-                              out, pairs...; kw...)
+            Base.invokelatest(
+                () -> Main.ExaModelsCompiler.compile_library(out, pairs...; kw...))
         end"""),
         #: a Julia callable, as opposed to a Python one that cannot be compiled
         is_julia=jl.seval("f -> f isa Function"),

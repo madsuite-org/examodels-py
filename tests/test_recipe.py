@@ -106,9 +106,14 @@ def test_srange_says_why_it_has_no_length():
         len(exa.srange(0, n))
 
 
-def test_compiling_needs_a_recipe():
-    """A core with nothing deferred has nothing to supply at run time."""
+def test_a_core_with_nothing_deferred_is_a_fixed_model():
+    """Not an error any more: the compiler takes a fixed core as it stands.
+
+    It used to be refused here for having no placeholders. The backend gained
+    fixed models -- compiled as-is, instantiated with no arguments -- so the
+    refusal would now reject something the compiler supports. What reaches the
+    backend for such a core is checked in test_compile.py.
+    """
     core = exa.Core()
     core.add_var(3, start=0.0)
-    with pytest.raises(ValueError, match="no placeholders"):
-        exa.compile_library(core, "nowhere", arg=3)
+    assert core.args == ()
