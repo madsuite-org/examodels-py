@@ -275,6 +275,13 @@ class Core:
             y = core.add_var(T, N)      # index as y[t, i]
 
         `start`, `lvar` and `uvar` are scalars or arrays of that shape.
+
+        >>> import examodels as exa
+        >>> core = exa.Core()
+        >>> x = core.add_var(3, start=1.0)
+        >>> _ = core.add_obj(lambda i: (x[i] - 2.0) ** 2, over=range(3))
+        >>> exa.Model(core).get_start(x)
+        array([1., 1., 1.])
         """
         scen, dims = self._scen(dims)
         if len(dims) == 1 and (isinstance(dims[0], types.GeneratorType)
@@ -348,7 +355,20 @@ class Core:
 
     def add_par(self, values, name=None):
         """A block of parameters — fixed values usable in expressions, changeable
-        afterwards with `Model.set_parameters` without rebuilding."""
+        afterwards with `Model.set_parameters` without rebuilding.
+
+        >>> import examodels as exa
+        >>> core = exa.Core()
+        >>> x = core.add_var(2)
+        >>> p = core.add_par([3.0, 4.0])
+        >>> _ = core.add_obj(lambda i: (x[i] - p[i]) ** 2, over=range(2))
+        >>> m = exa.Model(core)
+        >>> m.parameters(p)
+        array([3., 4.])
+        >>> _ = m.set_parameters(p, [5.0, 6.0])
+        >>> m.parameters(p)
+        array([5., 6.])
+        """
         arr = np.ascontiguousarray(values, dtype=np.float64).ravel()
         kw = self._named_kw(name, {})
         return self._remember(name, Block(

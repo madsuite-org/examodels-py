@@ -179,6 +179,15 @@ def recipe(nargs=1, **kwargs):
 
     Identical to `Core(nargs=...)` followed by unpacking `.args`; which reads
     better depends on the model, so both spellings exist.
+
+    >>> import examodels as exa
+    >>> core, n = exa.recipe()
+    >>> x = core.add_var(n, start=0.0)
+    >>> _ = core.add_obj(lambda i: (x[i] - 1.0) ** 2, over=exa.srange(0, n))
+    >>> exa.Model(core, 5).nvar
+    5
+    >>> exa.Model(core, 50).nvar
+    50
     """
     from .core import Core
     core = Core(nargs=nargs, **kwargs)

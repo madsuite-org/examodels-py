@@ -43,6 +43,18 @@ def solve(model, solver=None, **options):
 
         model.solve(print_level=0, sb="yes")           # a quiet Ipopt
         model.solve(solver="madnlp", tol=1e-10, max_iter=500)
+
+    >>> import examodels as exa
+    >>> core = exa.Core()
+    >>> x = core.add_var(3, start=0.0)
+    >>> _ = core.add_obj(lambda i: (x[i] - 2.0) ** 2, over=range(3))
+    >>> sol = exa.Model(core).solve(print_level=0, sb="yes")
+    >>> sol.status
+    'first_order'
+    >>> round(sol.objective, 6)
+    0.0
+    >>> sol[x].round(6)
+    array([2., 2., 2.])
     """
     if solver is None:
         solver = "madnlp" if _on_device(model) else "ipopt"

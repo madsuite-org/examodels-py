@@ -495,6 +495,16 @@ class RecordingCore(_Core):
         module docstring); the digest hashes the values the library bakes.
         Parameter *values* are deliberately excluded from both: they stay live
         through the ABI setter on a loaded library.
+
+        >>> import examodels as exa
+        >>> core = exa.Core(cache=True)
+        >>> x = core.add_var(4, start=0.5)
+        >>> _ = core.add_obj(lambda i: (x[i] - 1.0) ** 2, over=range(4))
+        >>> fp, dd = core.fingerprint()
+        >>> (len(fp), len(dd))
+        (64, 64)
+        >>> core.fingerprint() == (fp, dd)
+        True
         """
         s, d = hashlib.sha256(), hashlib.sha256()
         s.update(f"examodels-record-v0;minimize={self._minimize};"
