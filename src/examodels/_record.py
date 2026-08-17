@@ -471,13 +471,8 @@ class RecordingCore(_Core):
                     self._over_obj(r["over"]))
         return core
 
-    def build(self):
-        """Finish this core, returning a `Model`.
-
-        For now this always replays through Julia; the fingerprint lookup and
-        the cnlpmodels load land next.
-        """
-        return self.replay().build()
+    # build() is inherited: `Core.build` is `Model(self)`, which is where the
+    # cache lookup lives.
 
     def __repr__(self):
         return f"<Core cache={self.cache!r} ({len(self._records)} records)>"

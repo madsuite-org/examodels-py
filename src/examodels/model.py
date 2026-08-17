@@ -24,6 +24,18 @@ class Model:
     backend gains a field.
     """
 
+    def __new__(cls, core=None, *args, **kwargs):
+        from ._record import RecordingCore
+        if cls is Model and isinstance(core, RecordingCore):
+            # The cache lookup: a hit is a CachedModel, and no Julia has
+            # entered the process.  (Python then re-invokes __init__ on the
+            # returned instance; CachedModel.__init__ absorbs that.)
+            from ._cache import attach
+            hit = attach(core)
+            if hit is not None:
+                return hit
+        return object.__new__(cls)
+
     def __init__(self, core, *args):
         """`Model(core)`, or `Model(core, *values)` for a core built with
         `nargs=` — one value per placeholder, in the order they were returned."""
@@ -31,10 +43,11 @@ class Model:
         from .recipe import _unwrap
         from ._record import RecordingCore
         if isinstance(core, RecordingCore):
-            # A recorded core is finished by replaying it through the eager
-            # path (the cache lookup will land here: hit -> load the compiled
-            # library instead).
-            core = core.replay()
+            # A miss (a hit never reaches here): replay through the eager
+            # path, compile and store the entry synchronously, and carry on
+            # as an ordinary eager model for this run.
+            from ._cache import materialize
+            core = materialize(core)
         if isinstance(core, Core):
             if args:
                 self._jl = _b.guard(
