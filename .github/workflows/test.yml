@@ -203,6 +203,27 @@ jobs:
       - run: pip install -e ".[docs]"
       - run: python -m sphinx -b dirhtml docs docs/_build -W
 
+      # A `$$` block that MyST does not parse is not an error -- it renders as
+      # its own source, and the build stays green. That is how the manual
+      # shipped a formula as literal text, so the built page is checked for
+      # the thing whose absence was the symptom.
+      - name: math is rendered, not printed
+        run: |
+          python - <<'EOF'
+          import pathlib, sys
+          bad = []
+          for src in pathlib.Path("docs").rglob("*.md"):
+              if "$$" not in src.read_text():
+                  continue
+              built = pathlib.Path("docs/_build") / src.relative_to("docs").with_suffix("") / "index.html"
+              html = built.read_text()
+              if "mathjax" not in html.lower() or "$$" in html:
+                  bad.append(str(src))
+          if bad:
+              sys.exit(f"math left unrendered on: {bad}")
+          print("math rendered on every page that has any")
+          EOF
+
   lint:
     runs-on: ubuntu-latest
     steps:

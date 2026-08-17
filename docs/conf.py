@@ -11,7 +11,11 @@ extensions = [
     "sphinx.ext.viewcode",
 ]
 
-myst_enable_extensions = ["colon_fence", "deflist"]
+# `dollarmath` is what makes `$...$` and `$$...$$` into math at all: without
+# it MyST leaves them as text, no math nodes are produced, and Sphinx never
+# loads MathJax -- so the formula renders as its own source. `amsmath` is
+# for the environments (align, cases) that a longer derivation reaches for.
+myst_enable_extensions = ["colon_fence", "deflist", "dollarmath", "amsmath"]
 source_suffix = {".md": "markdown"}
 master_doc = "index"
 
