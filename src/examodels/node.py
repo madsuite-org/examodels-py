@@ -107,6 +107,12 @@ class Block:
                     f"index {i} is out of range for axis {axis} "
                     f"({ax.start}..{ax.stop - 1}) of {self!r}")
             return i
+        from ._record import PNode
+        if isinstance(i, PNode):
+            raise TypeError(
+                f"{self!r} belongs to a plain Core, but this index is being "
+                f"recorded for a Core(cache=...); a cached model must build "
+                f"every block from its own core")
         return _b.unwrap(i)
 
     def __getitem__(self, idx):
@@ -273,8 +279,8 @@ def _field_names(row):
         return [slots] if isinstance(slots, str) else list(slots)
     return None
 
-def _table(rows, index=()):
-    """A sequence of named rows -> the backend's table of named, typed fields.
+def _columns(rows, index=()):
+    """A sequence of named rows -> `(fields, cols, n)` numpy columns.
 
     Accepts a numpy structured array (which is already exactly that) or anything
     iterable of named tuples. Column types come from the values: whole numbers stay
@@ -308,6 +314,11 @@ def _table(rows, index=()):
             cols.append(np.ascontiguousarray(
                 values, dtype=np.int64 if (name in index or (not index and whole))
                 else np.float64))
+    return fields, cols, n
+
+def _table(rows, index=()):
+    """A sequence of named rows -> the backend's table of named, typed fields."""
+    fields, cols, n = _columns(rows, index)
     return _b.mkrecords(fields, cols), n
 
 def is_table(over):
@@ -334,13 +345,24 @@ def is_table(over):
 
 def sum(nodes):
     """A single summation node over `nodes` (the backend's `exa_sum`)."""
+    nodes = list(nodes)
+    from ._record import PNode
+    if any(isinstance(n, PNode) for n in nodes):
+        return PNode("sum", *nodes)
     return Node(_b.exa_sum([_b.unwrap(n) for n in nodes]))
 
 def prod(nodes):
     """A single product node over `nodes` (the backend's `exa_prod`)."""
+    nodes = list(nodes)
+    from ._record import PNode
+    if any(isinstance(n, PNode) for n in nodes):
+        return PNode("prod", *nodes)
     return Node(_b.exa_prod([_b.unwrap(n) for n in nodes]))
 
 def Constant(v):
     """A constant whose value is carried in the backend *type*, enabling the
     algebraic simplifications (`x * Constant(1) -> x`)."""
+    from ._record import PNode, tracing
+    if tracing():
+        return PNode("const", v)
     return Node(_b.EM.Constant(v))

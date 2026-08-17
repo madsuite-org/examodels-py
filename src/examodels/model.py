@@ -29,6 +29,12 @@ class Model:
         `nargs=` — one value per placeholder, in the order they were returned."""
         from .core import Core
         from .recipe import _unwrap
+        from ._record import RecordingCore
+        if isinstance(core, RecordingCore):
+            # A recorded core is finished by replaying it through the eager
+            # path (the cache lookup will land here: hit -> load the compiled
+            # library instead).
+            core = core.replay()
         if isinstance(core, Core):
             if args:
                 self._jl = _b.guard(

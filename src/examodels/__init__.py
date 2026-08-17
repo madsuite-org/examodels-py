@@ -138,7 +138,7 @@ __all__ = [
 
 
 _SUBMODULES = frozenset({"ops", "core", "node", "model", "solve", "testing",
-                         "advanced", "_bridge"})
+                         "advanced", "_bridge", "_record"})
 
 
 def __getattr__(name):
@@ -151,10 +151,19 @@ def __getattr__(name):
         # Never re-enter for a submodule: `from . import ops` consults this hook while
         # the submodule is still being imported, which would recurse forever.
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from . import _record
+    if _record.tracing():
+        # Inside a *recorded* trace, importing ops would boot Julia (its operator
+        # list comes from the backend). Return a recorder for any name; a name
+        # ExaModels does not register fails at replay, against the real list.
+        return _record.math_fn(name)
     import importlib
     ops = importlib.import_module(".ops", __name__)
     if hasattr(ops, name):
-        fn = getattr(ops, name)
+        # Cache a dispatcher, not the ops function: once `exa.sin` lives in
+        # globals(), this hook is never consulted again, and a later recorded
+        # trace must still divert PNode arguments.
+        fn = _record.math_fn(name, getattr(ops, name))
         globals()[name] = fn
         return fn
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

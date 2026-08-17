@@ -79,12 +79,20 @@ def _node(f, over=None):
         return f
     arity = len(over.axes) if isinstance(over, Product) else 1
     if arity == 1:
-        return trace(f)
-    sym = TupleNode(_b.EM.DataSource(), arity)
-    code = getattr(f, "__code__", None)
-    # a user function written `lambda t, i: ...` takes the components; one derived
-    # from a generator expression takes the tuple and unpacks it itself
-    return f(*sym) if code is not None and code.co_argcount == arity else f(sym)
+        got = trace(f)
+    else:
+        sym = TupleNode(_b.EM.DataSource(), arity)
+        code = getattr(f, "__code__", None)
+        # a user function written `lambda t, i: ...` takes the components; one
+        # derived from a generator expression takes the tuple and unpacks it itself
+        got = f(*sym) if code is not None and code.co_argcount == arity else f(sym)
+    from ._record import PNode
+    if isinstance(got, PNode):
+        raise TypeError(
+            "this expression uses a block from a Core(cache=...), but is being "
+            "added to a plain Core; a cached model must build every block from "
+            "its own core")
+    return got
 
 
 def _cell(value):
@@ -202,7 +210,15 @@ class Core:
     #: set by TwoStageCore; a plain core has none
     nscen = 0
 
-    def __init__(self, backend=None, minimize=True, nargs=0):
+    def __new__(cls, *args, cache=None, **kwargs):
+        if cache and cls is Core:
+            # Caching wants the model *recorded*, not built: RecordingCore keeps
+            # the whole construction in Python so a cache hit never boots Julia.
+            from ._record import RecordingCore
+            return object.__new__(RecordingCore)
+        return object.__new__(cls)
+
+    def __init__(self, backend=None, minimize=True, nargs=0, cache=None):
         resolved = _backend(backend)
         kw = {"backend": resolved} if resolved is not None else {}
         if not minimize:
