@@ -188,6 +188,21 @@ jobs:
       - run: python -c "import examodels; examodels.install_solver('ipopt')"
       - run: pytest tests/test_parity.py tests/test_dependencies.py -q -s
 
+  docs:
+    # The docs went unbuilt long enough to break twice over: a toctree entry
+    # with no page behind it, and a `docs` extra Read the Docs installs and
+    # pyproject never declared. Both are build failures, and neither was
+    # visible from here. Warnings are errors, as they are on Read the Docs.
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[docs]"
+      - run: python -m sphinx -b html docs docs/_build -W
+
   lint:
     runs-on: ubuntu-latest
     steps:

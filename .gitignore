@@ -10,3 +10,4 @@ coverage.xml
 *.so
 *.dylib
 *.dll
+docs/_build/

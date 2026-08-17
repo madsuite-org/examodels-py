@@ -1,6 +1,18 @@
 # examodels
 
-Python interface to [ExaModels.jl](https://github.com/exanauts/ExaModels.jl) — SIMD-parallel
+:::{admonition} Experimental
+:class: warning
+
+**This package is experimental and is not yet stable.** It is under active
+development: the API may change without notice, releases are unversioned in
+practice, and the compiler interface in particular is still moving. It has not
+been through the round of real use that would justify calling it otherwise.
+
+Use it for research and experiments, expect to pin a commit if you depend on
+it, and please report what breaks.
+:::
+
+Python interface to [ExaModels.jl](https://github.com/madsuite-org/ExaModels.jl) — SIMD-parallel
 algebraic modelling and automatic differentiation for nonlinear programs, on CPU threads or
 GPUs.
 

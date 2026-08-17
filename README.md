@@ -3,7 +3,13 @@
 [![test](https://github.com/MadNLP/examodels-py/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/MadNLP/examodels-py/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/MadNLP/examodels-py/branch/main/graph/badge.svg)](https://codecov.io/gh/MadNLP/examodels-py)
 
-Python interface to [ExaModels.jl](https://github.com/exanauts/ExaModels.jl) — SIMD-parallel
+> [!WARNING]
+> **Experimental — not yet stable.** This package is under active
+> development: the API may change without notice, and the compiler
+> interface in particular is still moving. Pin a commit if you depend
+> on it, and please report what breaks.
+
+Python interface to [ExaModels.jl](https://github.com/madsuite-org/ExaModels.jl) — SIMD-parallel
 algebraic modeling and automatic differentiation for nonlinear programs, on CPU threads or GPUs.
 
 ```python
