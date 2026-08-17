@@ -281,6 +281,16 @@ class ModelError(Exception):
     """An error raised while building or solving a model."""
 
 
+def loaded():
+    """Whether the Julia runtime is already in this process.
+
+    Answerable without touching it: juliacall boots Julia at import, so its
+    presence in `sys.modules` IS the fact.  The cache asks this because a
+    compiled library cannot stand its runtime up beside a live one."""
+    import sys
+    return "juliacall" in sys.modules
+
+
 def translate(exc):
     """Turn a backend error into a plain Python exception with a readable message."""
     msg = str(exc)

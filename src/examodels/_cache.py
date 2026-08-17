@@ -30,7 +30,6 @@ package's output.
 """
 import json
 import os
-import sys
 
 import numpy as np
 
@@ -178,9 +177,10 @@ def attach(core, fpdd=None):
 
     A matching sidecar whose library will not load is an error, not a miss:
     silently recompiling over a broken entry would hide it forever."""
+    from ._bridge import loaded
     fp, dd = core.fingerprint() if fpdd is None else fpdd
     meta = _match(core, fp, dd)
-    if meta is None or "juliacall" in sys.modules:
+    if meta is None or loaded():
         return None
     import cnlpmodels
     cm = cnlpmodels.CModel(meta["libpath"], prefix=meta["prefix"])

@@ -18,6 +18,9 @@ lint = ["ruff==0.16.2"]
 docs = ["sphinx>=7", "myst-parser>=2", "furo"]
 # Only for sharing device memory with CuPy; imported lazily, never on the CPU path.
 cuda = ["cupy-cuda12x>=13"]
+# The cache-hit half of Core(cache=...): loading a compiled entry (cnlpmodels)
+# and solving it without Julia (cyipopt). Imported lazily, only on a hit.
+cache = ["cnlpmodels", "cyipopt"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
