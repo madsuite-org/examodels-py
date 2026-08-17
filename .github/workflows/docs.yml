@@ -1,0 +1,48 @@
+# Publish the manual to GitHub Pages, the way ExaModels.jl publishes its own.
+#
+# The build also runs in `test.yml` on every push and pull request, with
+# warnings as errors; this workflow exists to DEPLOY, so it runs only where
+# there is something to deploy to -- a push to main.
+name: docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Contents to check out, pages+id-token to deploy: the deployment is
+# attributed to the workflow run itself rather than to a stored token.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one midway: a half-finished
+# deploy would leave the published site broken rather than merely stale.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[docs]"
+      - run: python -m sphinx -b html docs docs/_build -W
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
