@@ -80,6 +80,7 @@ def test_python_dependencies_are_only_what_we_declare():
         "os", "sys", "re", "io", "math", "cmath", "json", "types", "typing", "dis",
         "pathlib", "runpy", "subprocess", "textwrap", "shutil", "time", "importlib",
         "collections", "dataclasses", "tomllib", "warnings", "itertools", "functools",
+        "contextvars", "hashlib", "operator", "contextlib", "tempfile", "ctypes",
     }
     allowed = required | optional | {"juliapkg"}
     third_party = imported - stdlib - {"examodels"}
