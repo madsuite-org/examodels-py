@@ -72,8 +72,12 @@ Indices are 0-based, like the rest of Python: `x[0]` is the first variable and
 ## Install
 
 ```
-pip install examodels
+pip install git+https://github.com/madsuite-org/examodels-py
 ```
+
+Not on PyPI yet, so it installs from the repository. Full instructions,
+including solvers, GPUs and the compiler's own requirements, are in the
+[installation guide](https://madsuite.org/examodels-py/install.html).
 
 **You do not need Julia installed.** The backend runtime is downloaded into the
 environment on first use (verified from a shell with no `julia` on `PATH`; it costs

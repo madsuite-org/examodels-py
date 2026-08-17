@@ -43,8 +43,10 @@ on first use.
 ```{toctree}
 :maxdepth: 2
 
+install
 simd
 tutorial/index
+recipe
 oracle
 two_stage
 cupy
