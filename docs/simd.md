@@ -16,6 +16,12 @@ This package preserves that structure rather than flattening it. An expression i
 once, as a function of an index:
 
 ```python
+import examodels as exa
+
+N = 10
+core = exa.Core()
+x = exa.add_var(core, N, start=1.0)
+
 exa.add_obj(core, lambda i: 100 * (x[i-1]**2 - x[i])**2, over=range(1, N))
 ```
 

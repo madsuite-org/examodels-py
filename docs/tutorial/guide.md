@@ -20,6 +20,7 @@ x = exa.add_var(core, N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
 range, and there may be several:
 
 ```python
+T = 4
 y = exa.add_var(core, T, N)               # index as y[t, i]
 z = exa.add_var(core, range(2, 11))       # indices 2..10
 ```
@@ -38,7 +39,7 @@ Terms are summed; call it more than once to add more.
 ## Constraints
 
 ```python
-exa.add_con(core, lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
+con = exa.add_con(core, lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
             + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
             + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
             over=range(0, N - 2))
@@ -53,10 +54,10 @@ array. Use `-inf` or `inf` for a one-sided constraint.
 model = exa.Model(core)
 sol = model.solve()
 
-sol.status        # 'first_order'
-sol.objective     # 6.232458632
-sol[x]            # the values of block x, as a numpy array
-sol.multipliers(con)
+print(sol.status)            # 'first_order'
+print(sol.objective)         # 6.232458632
+print(sol[x])                # the values of block x, as a numpy array
+print(sol.multipliers(con))  # the duals of that constraint block
 ```
 
 Without `solver=`, Ipopt is used on the host and MadNLP on an accelerator — Ipopt cannot
@@ -76,7 +77,7 @@ A generator expression also works, and reads closest to the backend's macros. As
 argument it must be the only one, so it suits the method form:
 
 ```python
-core.add_obj(x[i]**2 for i in range(N))
+core.add_obj(x[i]**2 for i in range(N))     # `i` is bound by the comprehension
 ```
 
 ## Naming

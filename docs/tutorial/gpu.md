@@ -1,5 +1,6 @@
 # GPU
 
+<!-- not-tested: needs a CUDA device and the cuda backend -->
 ```python
 exa.install_backend("cuda")            # once per environment
 

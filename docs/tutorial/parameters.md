@@ -4,6 +4,9 @@ A parameter behaves like a fixed variable inside an expression, and its value ca
 changed afterwards without rebuilding the model — the derivative code is unaffected.
 
 ```python
+import examodels as exa
+
+N = 10
 core = exa.Core()
 th = exa.add_par(core, [100.0, 1.0])
 x = exa.add_var(core, N, start=1.0)

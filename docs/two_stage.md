@@ -1,6 +1,14 @@
 # Two-stage stochastic models
 
 ```python
+from collections import namedtuple
+
+import examodels as exa
+
+nscen = 3
+Row = namedtuple("Row", "i t")
+rows = [Row(i, 0.5 * i) for i in range(nscen * 4)]
+
 core = exa.TwoStageCore(nscen)
 
 d = exa.add_var(core, 2)                            # design, shared
@@ -19,6 +27,8 @@ replicated: supply the full index set, spanning all scenarios.
 Once built:
 
 ```python
+model = exa.Model(core)
+
 exa.get_nscen(model)       # how many scenarios
 exa.get_var_scen(model)    # scenario of each variable, 0 for the shared first stage
 exa.get_con_scen(model)    # scenario of each constraint row

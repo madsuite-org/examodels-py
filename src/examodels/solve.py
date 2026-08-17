@@ -31,11 +31,18 @@ def _lookup(name):
         raise ValueError(f"unknown solver {name!r}; available: {available_solvers()}") from None
 
 
-def solve(model, solver=None, print_level=0, **options):
-    """Solve `model`, returning a `Solution`. Extra keywords go to the solver.
+def solve(model, solver=None, **options):
+    """Solve `model`, returning a `Solution`. Keywords go to the solver as given.
 
     Without `solver=`, one is chosen by where the model's arrays live: Ipopt cannot
     take device arrays, so a model built on an accelerator goes to MadNLP.
+
+    Nothing is set on the solver's behalf -- it runs with its own defaults, so it
+    reports as it normally would. Its options are its own, passed straight
+    through:
+
+        model.solve(print_level=0, sb="yes")           # a quiet Ipopt
+        model.solve(solver="madnlp", tol=1e-10, max_iter=500)
     """
     if solver is None:
         solver = "madnlp" if _on_device(model) else "ipopt"
@@ -49,17 +56,12 @@ def solve(model, solver=None, print_level=0, **options):
                 f"Install it with: examodels.install_solver({solver!r})") from None
         _loaded.add(solver)
 
-    if solver == "ipopt":
-        options.setdefault("print_level", print_level)
-        if not print_level:
-            options.setdefault("sb", "yes")   # Ipopt prints its banner even at level 0
-    elif solver == "madnlp":
-        if not print_level:
-            options.setdefault("print_level", _b.seval("MadNLP.ERROR"))
-        if _on_device(model):
-            # A model whose arrays live on a device needs a linear solver that also
-            # runs there; the default one indexes elementwise and cannot.
-            options.setdefault("linear_solver", _device_linear_solver())
+    # The one thing still chosen for the caller, because it is not a preference:
+    # a model whose arrays live on a device needs a linear solver that also runs
+    # there, and the default one indexes elementwise and cannot. Still a
+    # `setdefault`, so naming one wins.
+    if solver == "madnlp" and _on_device(model):
+        options.setdefault("linear_solver", _device_linear_solver())
 
     import time
     t0 = time.perf_counter()

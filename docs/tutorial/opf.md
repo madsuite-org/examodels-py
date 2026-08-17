@@ -17,6 +17,7 @@ Each block of constraints is written once and evaluated over a table of rows —
 a numpy structured array, or any sequence of named tuples. The row is handed to
 the function, and its fields are read off it:
 
+<!-- not-tested: excerpts from examples/ac_opf.py, which needs a PGLib case file -->
 ```python
 va = add_var(core, len(data["bus"]))
 vm = add_var(core, len(data["bus"]), start=1.0,
@@ -32,6 +33,7 @@ per generator, and that is data rather than structure.
 The generation cost is a single quadratic pattern applied at every generator,
 and the branch flow equations are four patterns applied at every branch:
 
+<!-- not-tested: excerpts from examples/ac_opf.py, which needs a PGLib case file -->
 ```python
 add_obj(core, lambda g: g.cost1 * pg[g.i]**2 + g.cost2 * pg[g.i] + g.cost3,
         over=gen)
@@ -49,6 +51,7 @@ evaluated as one parallel kernel over the whole table.
 
 Bounds that are themselves per-row arrays are passed the same way:
 
+<!-- not-tested: excerpts from examples/ac_opf.py, which needs a PGLib case file -->
 ```python
 add_con(core, lambda b: va[b.f_bus] - va[b.t_bus], over=branch,
         lcon=data["angmin"], ucon=data["angmax"])
@@ -60,6 +63,7 @@ Power balance at a bus is a sum over things that are not known per bus — every
 line touching it, every generator on it. Rather than materialising that sum,
 the rows are created first and terms are added *into* them:
 
+<!-- not-tested: excerpts from examples/ac_opf.py, which needs a PGLib case file -->
 ```python
 pbal = add_con(core, lambda b: b.pd + b.gs * vm[b.i]**2, over=bus)
 add_con(core, pbal, lambda a: (a.bus, p[a.i]), over=arc)     # each arc
@@ -72,6 +76,7 @@ described in detail in [](constraint_augmentation.md).
 
 ## Solving it
 
+<!-- not-tested: excerpts from examples/ac_opf.py, which needs a PGLib case file -->
 ```python
 core, blocks = ac_opf(data)
 sol = exa.Model(core).solve(solver="ipopt")

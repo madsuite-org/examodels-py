@@ -4,6 +4,8 @@ A `Core` is normally built from data you already have, so the model and its data
 are finished together. Ask for placeholders instead and the two come apart:
 
 ```python
+import examodels as exa
+
 core, N, x0 = exa.recipe(nargs=2)          # or: exa.Core(nargs=2), then core.args
 x = core.add_var(N, start=x0)
 core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
@@ -39,6 +41,7 @@ the same limit.
 Ahead-of-time compilation needs the *structure* to become code while the *data*
 stays a run-time input, which is exactly what a recipe separates:
 
+<!-- not-tested: compiling needs the compiler backend and Julia 1.12 -->
 ```python
 exa.install_compiler()                     # once per environment; see Installation
 lib = exa.compile_library("@rosenbrock", core, 10)    # 10: an example size
@@ -53,6 +56,7 @@ consumers find it by that name; anything else is an ordinary path.
 A core with **no** placeholders is a fixed model, compiled with no example at
 all, and several models can share one library:
 
+<!-- not-tested: compiling needs the compiler backend and Julia 1.12 -->
 ```python
 lib = exa.compile_library("@grid", {"acopf": (ac_core, 100),
                                     "dcopf": (dc_core, 100),
@@ -70,6 +74,7 @@ default emits a single small library instead.
 The library exposes the model through a plain C interface, so who loads it is
 your business. Neither consumer is a dependency of this package:
 
+<!-- not-tested: loading a compiled library needs one to have been compiled -->
 ```python
 import cnlpmodels                          # ctypes + numpy, no Julia
 m = cnlpmodels.CModel("@rosenbrock", 10)
@@ -91,6 +96,7 @@ The alternative is to have the library *carry* the data processing, so that it
 is handed one string — a case file, a dataset name — and derives the rest
 itself. That is what an argument function is for:
 
+<!-- not-tested: needs the compiler backend and ExaPowerIO -->
 ```python
 exa.compile_library("@grid", core, "case14.m", argfun="ExaPowerIO.parse_case")
 ```

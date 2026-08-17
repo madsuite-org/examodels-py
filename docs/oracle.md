@@ -5,6 +5,12 @@ useful when the residual comes from a simulation, an external solver, or code th
 expressible as an algebraic expression.
 
 ```python
+import examodels as exa
+
+core = exa.Core()
+x = exa.add_var(core, 2, start=0.5)
+
+
 def f(c, x):
     c[0] = x[0]**2 + x[1]**2 - 1.0
 
@@ -32,8 +38,13 @@ which path an oracle uses.
 An objective term works the same way:
 
 ```python
-o = exa.ScalarNonlinearOracle(nvar=n, f=lambda x: ..., grad=lambda g, x: ...)
+o = exa.ScalarNonlinearOracle(
+    nvar=2,
+    f=lambda x: float(x[0]**2 + x[1]**2),
+    grad=lambda g, x: g.__setitem__(slice(None), 2 * x))
 exa.add_obj(core, o)
+
+model = exa.Model(core)
 ```
 
 ## `adapt`

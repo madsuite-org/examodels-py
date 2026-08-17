@@ -2,6 +2,7 @@
 
 Device memory is shared with CuPy in both directions, with no host round-trip.
 
+<!-- not-tested: needs a CUDA device and cupy -->
 ```python
 import cupy
 

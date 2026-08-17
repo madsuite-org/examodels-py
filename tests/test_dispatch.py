@@ -87,14 +87,29 @@ class _Recorder:
         return self.raw
 
 
-def test_madnlp_defaults_to_quiet_error_level(model, monkeypatch):
+def test_nothing_is_set_on_the_solver_s_behalf(model, monkeypatch):
+    # The solver's own defaults stand: a caller who wants it quiet says so, and
+    # a caller who says nothing gets the reporting the solver normally does.
     rec = _Recorder(monkeypatch, on_device=False)
     sol = solve(model, solver="madnlp")
     (fn, args, options), = rec.solved
     assert fn == "MADNLP-ENTRY" and args == (model._jl,)
-    assert options["print_level"] == "SEVAL(MadNLP.ERROR)"
-    assert "linear_solver" not in options        # host model: no device solver
+    assert options == {}                          # nothing invented
+    assert not any("MadNLP.ERROR" in s for s in rec.sevals)
     assert isinstance(sol, Solution) and sol._raw is rec.raw
+
+    rec.solved.clear()
+    solve(model, solver="ipopt")
+    (fn, _args, options), = rec.solved
+    assert fn == "IPOPT-ENTRY"
+    assert options == {}                          # no print_level, no sb
+
+
+def test_solver_options_are_passed_through_verbatim(model, monkeypatch):
+    rec = _Recorder(monkeypatch, on_device=False)
+    solve(model, solver="ipopt", print_level=5, sb="no", tol=1e-9)
+    (_fn, _args, options), = rec.solved
+    assert options == {"print_level": 5, "sb": "no", "tol": 1e-9}
 
 
 def test_a_device_model_routes_to_madnlp_with_a_device_solver(model, monkeypatch):
@@ -103,30 +118,13 @@ def test_a_device_model_routes_to_madnlp_with_a_device_solver(model, monkeypatch
     solve(model)                                 # no solver named
     (fn, _args, options), = rec.solved
     assert fn == "MADNLP-ENTRY"                  # chosen by where the arrays live
+    # the one thing still chosen for the caller -- a host linear solver cannot
+    # run on device arrays at all -- and naming one still wins
     assert options["linear_solver"] == "DEVICE-LS"
-
-
-def test_a_nonzero_print_level_lifts_the_madnlp_quieting(model, monkeypatch):
-    # For madnlp the level is a quiet/not-quiet switch: nonzero means the
-    # solver's own default verbosity, so no level option is forced at all.
-    rec = _Recorder(monkeypatch, on_device=False)
-    solve(model, solver="madnlp", print_level=1)
-    (_fn, _args, options), = rec.solved
-    assert "print_level" not in options
-    assert not any("MadNLP.ERROR" in s for s in rec.sevals)
-
-
-def test_ipopt_takes_the_level_itself_and_quiets_the_banner(model, monkeypatch):
-    rec = _Recorder(monkeypatch, on_device=False)
-    solve(model, solver="ipopt", print_level=7)
-    (fn, _args, options), = rec.solved
-    assert fn == "IPOPT-ENTRY"
-    assert options["print_level"] == 7
-    assert "sb" not in options                   # the banner switch is for level 0
     rec.solved.clear()
-    solve(model, solver="ipopt")
+    solve(model, linear_solver="MINE")
     (_fn, _args, options), = rec.solved
-    assert options == {"print_level": 0, "sb": "yes"}
+    assert options["linear_solver"] == "MINE"
 
 
 def test_device_solver_prefers_cudss_and_reports_when_none_load(model, monkeypatch):
