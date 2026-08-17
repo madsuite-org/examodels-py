@@ -47,6 +47,7 @@ install
 simd
 tutorial/index
 recipe
+cache
 cupy
 api
 ```

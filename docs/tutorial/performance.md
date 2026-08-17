@@ -21,6 +21,11 @@ Measured on one machine, one process, in order:
 The first build and solve together cost about 25 s. The second cost 0.05 s — some 500
 times faster — and that is the number that describes the rest of your session.
 
+All of this is per process. If your workflow is re-running a script rather
+than one long session, [the model cache](../cache.md) moves the whole cost to
+a single ahead-of-time compile: after it, each run of the script takes a
+fraction of a second and never starts Julia at all.
+
 ## The cost is per *structure*, not per instance
 
 The last three rows are the useful part. A model 10 000 times larger, built from the same
