@@ -1,7 +1,7 @@
 # examodels
 
-[![test](https://github.com/MadNLP/examodels-py/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/MadNLP/examodels-py/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/MadNLP/examodels-py/branch/main/graph/badge.svg)](https://codecov.io/gh/MadNLP/examodels-py)
+[![test](https://github.com/madsuite-org/examodels-py/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/madsuite-org/examodels-py/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/madsuite-org/examodels-py/branch/main/graph/badge.svg)](https://codecov.io/gh/madsuite-org/examodels-py)
 [![docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://madsuite.org/examodels-py/)
 
 > [!WARNING]
@@ -130,9 +130,9 @@ lib = exa.compile_library("@rosenrock", core, 10)   # 10: an example size
 ```
 
 The result is a shared library behind a plain C interface, which
-[cnlpmodels](https://github.com/MadNLP/cnlpmodels-py) loads with ctypes and
+[cnlpmodels](https://github.com/madsuite-org/cnlpmodels-py) loads with ctypes and
 numpy — no Julia in the process — and
-[CNLPModels.jl](https://github.com/MadNLP/CNLPModels.jl) loads from Julia.
+[CNLPModels.jl](https://github.com/madsuite-org/CNLPModels.jl) loads from Julia.
 Given `"@name"` rather than a path, the library is installed on the
 `CNLPMODELS_PATH` search path, where both find it by that name.
 
