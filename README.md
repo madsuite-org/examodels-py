@@ -2,6 +2,7 @@
 
 [![test](https://github.com/MadNLP/examodels-py/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/MadNLP/examodels-py/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/MadNLP/examodels-py/branch/main/graph/badge.svg)](https://codecov.io/gh/MadNLP/examodels-py)
+[![docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://madsuite.org/examodels-py/)
 
 > [!WARNING]
 > **Experimental — not yet stable.** This package is under active
