@@ -15,6 +15,11 @@ myst_enable_extensions = ["colon_fence", "deflist"]
 source_suffix = {".md": "markdown"}
 master_doc = "index"
 
+# Pages serves `dirhtml` output, so a page is `/install/` rather than
+# `/install.html`; the canonical URL has to be written the same way, and
+# both CI and the deploy build with `-b dirhtml` so they cannot diverge.
+html_baseurl = "https://madsuite.org/examodels-py/"
+
 html_theme = "furo"
 html_title = "examodels"
 

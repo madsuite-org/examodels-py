@@ -201,7 +201,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[docs]"
-      - run: python -m sphinx -b html docs docs/_build -W
+      - run: python -m sphinx -b dirhtml docs docs/_build -W
 
   lint:
     runs-on: ubuntu-latest
