@@ -81,6 +81,13 @@ with:
 import ssl; print(ssl.OPENSSL_VERSION)
 ```
 
+Compiled models come back through the `[cache]` extra — the julia-free
+loading half of [the model cache](cache.md):
+
+```
+pip install "examodels[cache] @ git+https://github.com/madsuite-org/examodels-py"
+```
+
 ## Development
 
 ```

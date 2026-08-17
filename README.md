@@ -55,12 +55,11 @@ this package carries it into Python:
   one core instantiates at any size and data — and can be compiled
   ahead-of-time into a self-contained shared library with a plain C interface
   (`exa.compile_library`).
-- **A compiled-model cache.** `exa.Core(cache=True)` records the model without
-  touching Julia and keys a compiled library by the model's structure: the
-  first run compiles once, and every later run of the unchanged script loads
-  the library and solves through
-  [cnlpmodels](https://github.com/madsuite-org/cnlpmodels-py) with no Julia in
-  the process — about half a second end to end.
+- **A compiled-model cache.** `exa.Core(cache=True)` keys a compiled library
+  by the model's structure: the first run compiles once, and every later run
+  of the unchanged script loads the library through
+  [cnlpmodels](https://github.com/madsuite-org/cnlpmodels-py) and solves with
+  no compilation overhead at all — about half a second end to end.
 
 The [manual](https://madsuite.org/examodels-py/) covers all of it: parameters,
 multi-dimensional blocks, indexing over data tables, GPUs, recipes, the

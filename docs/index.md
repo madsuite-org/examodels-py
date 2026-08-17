@@ -36,7 +36,9 @@ print(sol.status, sol.objective, sol[x])
 ```
 
 You do not need Julia installed: the backend runtime is downloaded into the environment
-on first use.
+on first use. And for a script that is re-run rather than kept alive, [the model
+cache](cache.md) compiles the model ahead of time once, after which every run is free of
+compilation overhead entirely.
 
 ## Contents
 

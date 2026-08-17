@@ -24,7 +24,7 @@ times faster — and that is the number that describes the rest of your session.
 All of this is per process. If your workflow is re-running a script rather
 than one long session, [the model cache](../cache.md) moves the whole cost to
 a single ahead-of-time compile: after it, each run of the script takes a
-fraction of a second and never starts Julia at all.
+fraction of a second, with no compilation left to pay.
 
 ## The cost is per *structure*, not per instance
 

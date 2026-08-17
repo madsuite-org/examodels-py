@@ -39,6 +39,25 @@
 .. autofunction:: examodels.product
 ```
 
+## Recipes
+
+```{eval-rst}
+.. autofunction:: examodels.recipe
+.. autofunction:: examodels.srange
+```
+
+## The compiler and the model cache
+
+```{eval-rst}
+.. autofunction:: examodels.compile_library
+.. autofunction:: examodels.compiler_available
+.. autofunction:: examodels.install_compiler
+.. autoclass:: examodels.CompiledLibrary
+```
+
+`Core(cache=True)` needs no API of its own — recording, lookup, compile and
+load all hang off `Core` and `Model`; see [](cache.md).
+
 ## Solvers and backends
 
 ```{eval-rst}

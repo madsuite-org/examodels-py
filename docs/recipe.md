@@ -49,6 +49,8 @@ lib = exa.compile_library("@rosenbrock", core, 10)    # 10: an example size
 
 The example value's *type* is baked in — the compiler needs the call graph
 resolved statically — while its value is supplied per instance at run time.
+(You rarely need to call this yourself: `Core(nargs=..., cache=True)` compiles
+and reuses the library automatically — see [](cache.md).)
 
 `"@name"` installs the library on the `CNLPMODELS_PATH` search path, where both
 consumers find it by that name; anything else is an ordinary path.
