@@ -201,15 +201,21 @@ def test_lookup_path_is_julia_free():
                     "prefix": "m", "backend_pin": _cache._pinned_backend()}
             _cache._write_sidecar(d, meta)
             assert _cache.attach(core) is None
-            # a MATCHING sidecar whose library is missing must raise here
-            # (julia-free, so the guard does not intercept): recompiling
-            # over a broken entry would hide it forever
+            # a MATCHING sidecar must raise here either way (julia-free, so
+            # the guard does not intercept): a missing library because
+            # recompiling over a broken entry would hide it forever, and a
+            # missing [cache] extra because a raw ModuleNotFoundError names
+            # the wrong problem.  Which error depends on the environment —
+            # CI has no extra, dev machines do — so expect its own.
             meta["fingerprint"] = fp
             _cache._write_sidecar(d, meta)
+            from importlib.util import find_spec
+            want = ("libm.so", "shared library") if find_spec("cnlpmodels") \
+                else ("examodels[cache]",)
             try:
                 _cache.attach(core)
             except Exception as e:
-                assert "libm.so" in str(e) or "shared library" in str(e), e
+                assert any(w in str(e) for w in want), (want, e)
             else:
                 raise AssertionError("a broken matching entry was not an error")
         assert "juliacall" not in sys.modules, "lookup path booted Julia"

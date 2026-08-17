@@ -219,7 +219,15 @@ def attach(core, args=(), fpdd=None):
     meta = _match(core, fp, dd, _argsig(args))
     if meta is None or loaded():
         return None
-    import cnlpmodels
+    try:
+        import cnlpmodels
+    except ImportError:
+        from ._bridge import ModelError
+        raise ModelError(
+            "a compiled cache entry matches this model, but loading it needs "
+            "the [cache] extra (cnlpmodels + cyipopt): pip install "
+            "\"examodels[cache]\". Or build without cache= to skip the "
+            "cache entirely.") from None
     cm = cnlpmodels.CModel(meta["libpath"], *args, prefix=meta["prefix"])
     return CachedModel._load(cm, core)
 
