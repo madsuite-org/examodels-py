@@ -71,9 +71,17 @@ def test_install_backend_adds_the_named_package(monkeypatch):
     fake = types.SimpleNamespace(add=lambda *a, **k: calls.append(("add", a, k)),
                                  resolve=lambda: calls.append(("resolve",)))
     monkeypatch.setitem(sys.modules, "juliapkg", fake)
+    # cuda brings the whole device-solve stack, in one resolve
     exa.install_backend("cuda")
-    assert calls == [("add", ("CUDA", core_mod._BACKEND_UUIDS["CUDA"]), {}),
-                     ("resolve",)]
+    assert [c[1][0] for c in calls if c[0] == "add"] == \
+        ["CUDA", "MadNLP", "MadNLPGPU", "CUDSS"]
+    assert calls[0] == ("add", ("CUDA", core_mod._BACKEND_UUIDS["CUDA"]), {})
+    assert calls[-1] == ("resolve",)
+    assert sum(c == ("resolve",) for c in calls) == 1
+    # a backend with no solver stack stays a single package
+    calls.clear()
+    exa.install_backend("rocm")
+    assert [c[0] for c in calls] == ["add", "resolve"]
 
 
 # ------------------------------------------------------------ placeholders ----

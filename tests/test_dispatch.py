@@ -146,7 +146,7 @@ def test_device_solver_prefers_cudss_and_reports_when_none_load(model, monkeypat
     monkeypatch.setattr(_b, "seval",
                         lambda code: False if code.startswith("try") else None,
                         raising=False)
-    with pytest.raises(_b.ModelError, match="Install CUDSS"):
+    with pytest.raises(_b.ModelError, match="install_backend"):
         solve_mod._device_linear_solver()
 
 
