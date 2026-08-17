@@ -25,6 +25,7 @@ environment beside your virtualenv in `.venv/julia_env`.
 Solvers are backend packages rather than Python ones, so they are installed
 through this package, once per environment:
 
+<!-- not-tested: installs a backend package: needs a network, and changes the environment -->
 ```python
 import examodels as exa
 
@@ -37,6 +38,7 @@ Without one, models still build and evaluate — only `solve` needs a solver.
 
 ## GPUs
 
+<!-- not-tested: needs a CUDA device; installs a backend package -->
 ```python
 exa.install_backend("cuda")      # or "rocm", "oneapi", "metal"
 core = exa.Core(backend="cuda")
@@ -55,6 +57,7 @@ pip install "examodels[cuda] @ git+https://github.com/madsuite-org/examodels-py"
 Compiling a model into a shared library ([](recipe.md)) needs one more backend
 package:
 
+<!-- not-tested: installs the compiler backend, which also needs Julia 1.12 -->
 ```python
 exa.install_compiler()
 ```
