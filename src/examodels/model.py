@@ -40,9 +40,9 @@ class Model:
     def __init__(self, core, *args):
         """`Model(core)`, or `Model(core, *values)` for a core built with
         `nargs=` — one value per placeholder, in the order they were returned."""
+        from ._record import RecordingCore
         from .core import Core
         from .recipe import _unwrap
-        from ._record import RecordingCore
         if isinstance(core, RecordingCore):
             # A miss (a hit never reaches here): replay through the eager
             # path, compile and store the entry synchronously, and carry on

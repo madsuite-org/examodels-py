@@ -6,7 +6,6 @@ Every test here must run with Julia never entering the process; the last test
 asserts that for the whole module, so a regression that boots Julia anywhere
 in the lookup path fails loudly rather than slowly.
 """
-import json
 import os
 import sys
 

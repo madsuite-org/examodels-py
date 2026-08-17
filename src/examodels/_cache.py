@@ -39,6 +39,9 @@ __all__ = ["CachedModel", "CachedSolution"]
 SIDECAR = "examodels-cache.json"
 FORMAT = "examodels-cache-v0"
 
+#: the missing-compiler degradation warns once per process, not per model
+_warned_no_compiler = False
+
 
 def _root():
     return os.environ.get("EXAMODELS_CACHE") or os.path.join(
@@ -242,7 +245,6 @@ def materialize(core, args=(), fpdd=None):
     the caller asked for a cache and did not get one.  For a recipe, `args`
     are this run's instantiation values, which double as the compiler's
     examples: their types are baked, their values stay per-instance."""
-    from ._bridge import ModelError
     from .compile import compile_library, compiler_available
     fp, dd = core.fingerprint() if fpdd is None else fpdd
     sig = _argsig(args)
@@ -272,12 +274,21 @@ def materialize(core, args=(), fpdd=None):
         # to store, and no compiler needed.
         return eager
     if not compiler_available():
-        raise ModelError(
-            "Core(cache=...) needs the compiler backend to store the model, "
-            "and it is not installed in this environment; run "
-            "examodels.install_compiler() once. (It needs Julia 1.12, which "
-            "juliapkg only installs when Python links OpenSSL >= 3.5 — see "
-            "the install manual.)")
+        # Degrade, don't refuse: the model the caller asked for exists (the
+        # replay just built it) — only the caching is impossible here, and a
+        # Python on OpenSSL < 3.5 cannot install the compiler at all, so an
+        # error would make cache= permanently unusable on such machines.
+        global _warned_no_compiler
+        if not _warned_no_compiler:
+            _warned_no_compiler = True
+            import warnings
+            warnings.warn(
+                "this model was built eagerly but NOT cached: the compiler "
+                "backend is not installed. Run examodels.install_compiler() "
+                "once (it needs Julia 1.12, which juliapkg only installs "
+                "when Python links OpenSSL >= 3.5 — see the install manual).",
+                RuntimeWarning, stacklevel=3)
+        return eager
     spec = core.cache
     if spec is True:
         entry = _entries(True, fp, dd, sig)[0]
@@ -487,8 +498,9 @@ class CachedModel(Model):
                 f"a cache-hit model solves with Ipopt through cyipopt; "
                 f"{solver!r} would need Julia, which a hit never boots. "
                 f"Build without cache= to use it.")
-        from cnlpmodels import solve_ipopt
         import time
+
+        from cnlpmodels import solve_ipopt
         t0 = time.perf_counter()
         x, info = solve_ipopt(self._cm, **options)
         return CachedSolution(x, info, self._var, self._con,

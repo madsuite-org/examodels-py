@@ -57,6 +57,24 @@ _build = _ns["build"]
 
 Z = [0.1, 0.46, 0.82, 1.18, 1.54, 1.9]
 
+import contextlib
+
+
+@contextlib.contextmanager
+def _cache_env(root):
+    """Point the cache at `root`, restoring whatever was there before — the
+    suite-wide isolation fixture owns the variable otherwise."""
+    old = os.environ.get("EXAMODELS_CACHE")
+    os.environ["EXAMODELS_CACHE"] = root
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("EXAMODELS_CACHE", None)
+        else:
+            os.environ["EXAMODELS_CACHE"] = old
+
+
 
 def _sub(body, root, timeout):
     """Run `MODEL + body` in a fresh interpreter; its last stdout line is JSON."""
@@ -151,11 +169,8 @@ def test_any_other_data_change_misses(primed):
     core, x, p = _build(exa)
     core._records[0]["start"] = 0.75                       # baked -> different entry
     fp, dd = core.fingerprint()
-    os.environ["EXAMODELS_CACHE"] = primed["root"]
-    try:
+    with _cache_env(primed["root"]):
         assert _cache._match(core, fp, dd) is None
-    finally:
-        del os.environ["EXAMODELS_CACHE"]
 
 
 def test_julia_process_falls_back_to_eager_without_recompiling(primed):
@@ -167,8 +182,7 @@ def test_julia_process_falls_back_to_eager_without_recompiling(primed):
     assert "juliacall" in sys.modules
     core, x, p = _build(exa)
     fp, dd = core.fingerprint()
-    os.environ["EXAMODELS_CACHE"] = primed["root"]
-    try:
+    with _cache_env(primed["root"]):
         meta = _cache._match(core, fp, dd)
         assert meta is not None
         before = os.path.getmtime(meta["libpath"])
@@ -176,23 +190,21 @@ def test_julia_process_falls_back_to_eager_without_recompiling(primed):
         assert type(m).__name__ == "Model", type(m).__name__
         np.testing.assert_allclose(m.objective(Z), primed["eager"]["obj"], rtol=1e-12)
         assert os.path.getmtime(meta["libpath"]) == before, "entry was rebuilt"
-    finally:
-        del os.environ["EXAMODELS_CACHE"]
 
 
 def test_fresh_process_hits_solves_and_never_boots_julia(primed):
-    got = _sub(f"""
+    got = _sub("""
         import json, sys
         import examodels as exa
         core, x, p = build(exa)
         m = exa.Model(core)
         assert "juliacall" not in sys.modules, "the hit path booted Julia"
         sol = m.solve(print_level=0, sb="yes")
-        print(json.dumps({{
+        print(json.dumps({
             "success": bool(sol.success), "objective": sol.objective,
             "x_first": float(sol[x][0]), "y_len": len(sol.y),
             "viol": float(m.violation(sol.x)),
-            "julia_free": "juliacall" not in sys.modules}}))
+            "julia_free": "juliacall" not in sys.modules}))
     """, primed["root"], timeout=300)
     assert got["julia_free"] is True
     assert got["success"] is True
@@ -289,9 +301,6 @@ def test_recipe_argument_of_a_different_type_misses(primed_recipe):
     exec(RECIPE, ns)
     core, x, p = ns["build_recipe"](exa)
     fp, dd = core.fingerprint()
-    os.environ["EXAMODELS_CACHE"] = primed_recipe["root"]
-    try:
+    with _cache_env(primed_recipe["root"]):
         assert _cache._match(core, fp, dd, _cache._argsig((8,))) is not None
         assert _cache._match(core, fp, dd, _cache._argsig((8.0,))) is None
-    finally:
-        del os.environ["EXAMODELS_CACHE"]

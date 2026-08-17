@@ -356,7 +356,7 @@ class RecordingCore(_Core):
         if kind == "srange":
             from .recipe import SRange
             return SRange(_arg_obj(desc[1], args), _arg_obj(desc[2], args))
-        fields, dtypes, cols = desc[1], desc[2], desc[3]
+        fields, cols = desc[1], desc[3]
         arr = np.empty(len(cols[0]), dtype=[(f, c.dtype) for f, c in zip(fields, cols)])
         for f, c in zip(fields, cols):
             arr[f] = c
@@ -438,7 +438,6 @@ class RecordingCore(_Core):
         return self
 
     def add_con(self, *args, over=None, lcon=0.0, ucon=0.0, name=None):
-        from .core import _data
         if args and _is_oracle(args[0]):
             raise NotImplementedError(
                 "an oracle is a Python callback — it cannot live in a compiled "

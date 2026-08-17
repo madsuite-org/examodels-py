@@ -3,7 +3,22 @@
 A solver is an optional dependency — the package models happily without one — so
 tests that solve skip when none is installed rather than failing.
 """
+import os
+
 import pytest
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_model_cache(tmp_path_factory):
+    """Tests must never read or write the user's real model cache: a
+    `Core(cache=True)` built anywhere in the suite would otherwise compile
+    into (or hit from) `~/.cache/examodels` — found there as residue."""
+    if "EXAMODELS_CACHE" in os.environ:
+        yield
+        return
+    os.environ["EXAMODELS_CACHE"] = str(tmp_path_factory.mktemp("model-cache"))
+    yield
+    del os.environ["EXAMODELS_CACHE"]
 
 
 def _installed(name):
