@@ -177,13 +177,31 @@ def _backend(spec):
     return _b.seval(ctor)
 
 
+#: What a working DEVICE SOLVE needs beyond the backend package itself: the
+#: solver's device side and its linear solver, installed together so the whole
+#: tree resolves in ONE environment.  A piece left to the global environment
+#: gets picked up through Julia's load path against a different dependency
+#: tree, and the mixed stack fails incoherently at the first solve.
+_BACKEND_STACKS = {
+    "cuda": (("MadNLP", "2621e9c9-9eb4-46b1-8089-e8c72242dfb6"),
+             ("MadNLPGPU", "d72a61cc-809d-412f-99be-fd81f4b8a598"),
+             ("CUDSS", "45b445bb-4962-46a0-9369-b4df9d0f772e")),
+}
+
+
 def install_backend(name):
-    """Install an accelerator backend into this environment (one-off; needs a network)."""
+    """Install an accelerator backend into this environment (one-off; needs a
+    network).  For `"cuda"` this is the whole stack a device solve needs —
+    CUDA, MadNLP, MadNLPGPU and CUDSS — resolved into one environment.
+    Restart Python afterwards: the environment cannot change under a running
+    Julia."""
     pkg, _ = BACKENDS.get(name, (None, None))
     if pkg is None:
         raise ValueError(f"nothing to install for backend {name!r}")
     import juliapkg
     juliapkg.add(pkg, _BACKEND_UUIDS[pkg])
+    for extra, uuid in _BACKEND_STACKS.get(name, ()):
+        juliapkg.add(extra, uuid)
     juliapkg.resolve()
 
 

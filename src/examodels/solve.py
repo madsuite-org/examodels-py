@@ -106,4 +106,6 @@ def _device_linear_solver():
             return _b.seval(f"MadNLPGPU.{name}")
     raise _b.ModelError(
         "no device linear solver is available: MadNLPGPU is installed but none of "
-        f"{', '.join(DEVICE_LINEAR_SOLVERS)} is usable. Install CUDSS.")
+        f"{', '.join(DEVICE_LINEAR_SOLVERS)} is usable. Reinstall the stack — "
+        f"examodels.install_backend(\"cuda\") — and restart Python: the "
+        f"environment cannot change under a running Julia.")

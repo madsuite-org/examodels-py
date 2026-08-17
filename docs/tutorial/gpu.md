@@ -1,21 +1,15 @@
 # GPU
 
-Solving on an NVIDIA device takes three backend packages: CUDA (the backend),
-MadNLPGPU (the solver's device side) and CUDSS (the linear solver). Today
-`install_backend("cuda")` installs only the first; the other two go through
-`juliapkg` until the package grows a route of its own. Run this once and
-**restart Python afterwards** — the environment cannot change under a running
-Julia:
+Solving on an NVIDIA device takes the backend and the solver's device stack —
+CUDA, MadNLP, MadNLPGPU and CUDSS — and `install_backend("cuda")` installs
+them together, into one environment. Run it once and **restart Python
+afterwards** — the environment cannot change under a running Julia:
 
 <!-- not-tested: installs backend packages; needs a CUDA device -->
 ```python
 import examodels as exa
-import juliapkg
 
-exa.install_backend("cuda")
-juliapkg.add("MadNLPGPU", "d72a61cc-809d-412f-99be-fd81f4b8a598")
-juliapkg.add("CUDSS", "45b445bb-4962-46a0-9369-b4df9d0f772e")
-juliapkg.resolve()
+exa.install_backend("cuda")      # CUDA + MadNLP + MadNLPGPU + CUDSS, together
 ```
 
 A device model is then ordinary code — MadNLP and a device linear solver are

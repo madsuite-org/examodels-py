@@ -155,3 +155,15 @@ def test_the_backend_installs_its_own_signal_handlers():
     """
     _b._boot()
     assert int(_b.seval("Int(Base.JLOptions().handle_signals)")) == 1
+
+
+def test_backend_stack_and_solver_tables_agree():
+    """MadNLP's UUID lives in two tables (the solver registry and the cuda
+    install stack); if they drift, install_backend and install_solver would
+    resolve different packages under one name."""
+    from examodels.core import _BACKEND_STACKS
+    from examodels.solve import SOLVERS
+    stack = dict(_BACKEND_STACKS["cuda"])
+    assert stack["MadNLP"] == SOLVERS["madnlp"][1]
+    for name, uuid in _BACKEND_STACKS["cuda"]:
+        assert len(uuid) == 36 and uuid.count("-") == 4, (name, uuid)
