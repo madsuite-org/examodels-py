@@ -28,6 +28,7 @@ against (read julia-free from the packaged `juliapkg.json`): a library from a
 different pin is a miss, since the generated derivative code is that
 package's output.
 """
+import hashlib
 import json
 import os
 
@@ -61,14 +62,48 @@ def _pinned_backend():
 _EXTS = (".so", ".dylib", ".dll")
 
 
-def _entries(spec, fp, dd):
+def _argsig(args):
+    """The instantiation values' TYPE signature — structure, not data.
+
+    The compiler bakes each example's type into the library while the value
+    stays a per-instance input, so two runs whose arguments differ only in
+    VALUE share an entry, and two whose types differ do not.  The judgments
+    mirror `compile._example`'s: 64-bit numbers, 1-D arrays of them, tables
+    of named columns, and strings (which reach an argfun, never storage)."""
+    from .node import _columns, is_table
+    sig = []
+    for v in args:
+        if isinstance(v, (bool, np.bool_)):
+            raise TypeError("a bool is not a model argument; say 0 or 1")
+        if isinstance(v, (int, np.integer)):
+            sig.append("i64")
+        elif isinstance(v, (float, np.floating)):
+            sig.append("f64")
+        elif isinstance(v, str):
+            sig.append("str")
+        elif is_table(v):
+            fields, cols, _n = _columns(v)
+            sig.append("table:" + ",".join(
+                f"{f}:{c.dtype}" for f, c in zip(fields, cols)))
+        else:
+            a = np.asarray(v)
+            if a.ndim != 1 or a.dtype.kind not in "iuf":
+                raise TypeError(
+                    f"an argument may be a number, a 1-D array of numbers, a "
+                    f"table of named rows, or a string; got {v!r}")
+            sig.append("vec:i64" if a.dtype.kind in "iu" else "vec:f64")
+    return ";".join(sig)
+
+
+def _entries(spec, fp, dd, sig=""):
     """Candidate entry directories for a `cache=` spec, most specific first.
 
     An entry directory is wherever a sidecar may sit; for `cache=True` it is
-    also unique per (fingerprint, digest), which is what makes that form
-    content-addressed."""
+    also unique per (fingerprint, digest, argument signature), which is what
+    makes that form content-addressed."""
     if spec is True:
-        return [os.path.join(_root(), fp[:16] + dd[:16])]
+        tag = "-" + hashlib.sha256(sig.encode()).hexdigest()[:8] if sig else ""
+        return [os.path.join(_root(), fp[:16] + dd[:16] + tag)]
     s = os.fspath(spec)
     if s.startswith("@"):
         name = s[1:]
@@ -151,19 +186,21 @@ def _layout(core):
 
 # -- lookup (the julia-free path) ---------------------------------------------
 
-def _match(core, fp, dd):
+def _match(core, fp, dd, sig=""):
     """The first sidecar matching this record — the pure lookup, no policy."""
-    for entry in _entries(core.cache, fp, dd):
+    for entry in _entries(core.cache, fp, dd, sig):
         meta = _read_sidecar(entry)
         if (meta is not None and meta["fingerprint"] == fp
                 and meta["data_digest"] == dd
+                and meta.get("argsig", "") == sig
                 and meta.get("backend_pin") == _pinned_backend()):
             return meta
     return None
 
 
-def attach(core, fpdd=None):
-    """The cached model for this record, or None.
+def attach(core, args=(), fpdd=None):
+    """The cached model for this record (instantiated with `args`, for a
+    recipe), or None.
 
     None sends the caller down the eager path, for either of two reasons: a
     genuine miss (no sidecar, or digests or backend pin differ), or a
@@ -179,40 +216,49 @@ def attach(core, fpdd=None):
     silently recompiling over a broken entry would hide it forever."""
     from ._bridge import loaded
     fp, dd = core.fingerprint() if fpdd is None else fpdd
-    meta = _match(core, fp, dd)
+    meta = _match(core, fp, dd, _argsig(args))
     if meta is None or loaded():
         return None
     import cnlpmodels
-    cm = cnlpmodels.CModel(meta["libpath"], prefix=meta["prefix"])
+    cm = cnlpmodels.CModel(meta["libpath"], *args, prefix=meta["prefix"])
     return CachedModel._load(cm, core)
 
 
 # -- store (the miss path; Julia is already up) -------------------------------
 
-def materialize(core, fpdd=None):
+def materialize(core, args=(), fpdd=None):
     """Replay the record, compile it, write the entry, return the eager core.
 
     Synchronous by design: the first run grows by the compile time, and in
     exchange what happened is never in doubt.  A compile failure propagates —
-    the caller asked for a cache and did not get one."""
+    the caller asked for a cache and did not get one.  For a recipe, `args`
+    are this run's instantiation values, which double as the compiler's
+    examples: their types are baked, their values stay per-instance."""
     from ._bridge import ModelError
     from .compile import compile_library, compiler_available
     fp, dd = core.fingerprint() if fpdd is None else fpdd
-    # The compiler publishes only NAMED blocks, and parameter addressing on a
-    # loaded library goes through that layout — so every parameter must carry
-    # a name into the compile.  Set-and-restore rather than keep: the name is
-    # part of the structural fingerprint, and the record must stay identical
-    # to what the sidecar was keyed on.
+    sig = _argsig(args)
+    # The compiler publishes only NAMED blocks, and everything the wrapper
+    # addresses on a loaded library goes through that layout — parameters
+    # always (the ABI setter), and for a recipe every block, since sizes and
+    # offsets exist only per instance.  So the compile replay names what the
+    # user did not: parameters on any core, all nameable blocks on a recipe.
+    # Set-and-restore rather than keep: the name is part of the structural
+    # fingerprint, and the record must stay identical to what the sidecar
+    # was keyed on.  (A dims-only constraint block has no name in the eager
+    # surface, so it stays unpublished; slicing its handle on a hit refuses.)
+    prefixes = {"var": "_v", "con": "_c", "par": "_p"}
+    kinds = ("var", "con", "par") if core._nargs else ("par",)
     unnamed = [r for r in core._records
-               if r["kind"] == "par" and r["name"] is None]
+               if r["kind"] in kinds and r["name"] is None]
     for r in unnamed:
-        r["name"] = f"_p{r['ordinal']}"
+        r["name"] = f"{prefixes[r['kind']]}{r['ordinal']}"
     try:
         eager = core.replay()
     finally:
         for r in unnamed:
             r["name"] = None
-    if _match(core, fp, dd) is not None:
+    if _match(core, fp, dd, sig) is not None:
         # The entry already exists; we are on the eager path only because
         # this process already runs Julia (or raced another build).  Nothing
         # to store, and no compiler needed.
@@ -226,24 +272,52 @@ def materialize(core, fpdd=None):
             "the install manual.)")
     spec = core.cache
     if spec is True:
-        entry = os.path.join(_root(), fp[:16] + dd[:16])
+        entry = _entries(True, fp, dd, sig)[0]
         os.makedirs(entry, exist_ok=True)
-        lib = compile_library(os.path.join(entry, "m"), eager)
+        lib = compile_library(os.path.join(entry, "m"), eager, *args)
     elif os.fspath(spec).startswith("@"):
-        lib = compile_library(os.fspath(spec), eager)
+        lib = compile_library(os.fspath(spec), eager, *args)
         entry = lib.outdir
     else:
         s = os.fspath(spec)
         entry = os.path.dirname(os.path.abspath(s)) if s.endswith(_EXTS) \
             else os.path.abspath(s)
         os.makedirs(entry, exist_ok=True)
-        lib = compile_library(os.path.join(entry, os.path.basename(entry)), eager)
+        lib = compile_library(os.path.join(entry, os.path.basename(entry)),
+                              eager, *args)
     _write_sidecar(entry, {
-        "format": FORMAT, "fingerprint": fp, "data_digest": dd,
+        "format": FORMAT, "fingerprint": fp, "data_digest": dd, "argsig": sig,
         "libpath": os.path.abspath(lib.path), "prefix": lib.prefixes[0],
         "backend_pin": _pinned_backend(),
     })
     return eager
+
+
+def _published_layout(cm, core):
+    """key -> (offset, length, dims), read from the library's own layout.
+
+    Every nameable block was named into the compile (`materialize`'s
+    synthetic names), so the lookup is by those same names.  A dims-only
+    constraint block has no name in the eager surface and so no published
+    entry; its keys come back separately, for slicing to refuse."""
+    var, con, unpublished = {}, {}, set()
+    for r in core._records:
+        kind = r["kind"]
+        if kind == "con_dims":
+            unpublished.add(("con", r["ordinal"]))
+            continue
+        if kind not in ("var", "con"):
+            continue
+        name = r["name"] or ("_v" if kind == "var" else "_c") + str(r["ordinal"])
+        b = (cm._vars if kind == "var" else cm._cons).get(name)
+        if b is None:
+            raise RuntimeError(
+                f"cache entry does not fit its own record: the library "
+                f"publishes no block named {name!r} — delete the entry")
+        dims = tuple(b.dims) if len(b.dims) > 1 else (b.length,)
+        (var if kind == "var" else con)[(kind, r["ordinal"])] = \
+            (b.offset, b.length, dims)
+    return var, con, unpublished
 
 
 # -- the wrapper --------------------------------------------------------------
@@ -273,12 +347,25 @@ class CachedModel(Model):
         self = object.__new__(cls)
         self._cm = cm
         self._named = dict(core._named)
-        self._var, self._con, pars, nvar, ncon = _layout(core)
-        if (cm.nvar, cm.ncon) != (nvar, ncon):
-            raise RuntimeError(
-                f"cache entry does not fit its own record: the library has "
-                f"{cm.nvar} variables / {cm.ncon} constraints where the "
-                f"record laid out {nvar} / {ncon} — delete the entry")
+        self._unpublished = set()
+        if core._nargs:
+            # a recipe's sizes exist only per instance, so the loaded
+            # instance's own layout is the authority
+            self._var, self._con, self._unpublished = _published_layout(cm, core)
+            nvar = sum(v[1] for v in self._var.values())
+            if nvar != cm.nvar:
+                raise RuntimeError(
+                    f"cache entry does not fit its own record: the instance "
+                    f"has {cm.nvar} variables where the published blocks "
+                    f"cover {nvar} — delete the entry")
+        else:
+            self._var, self._con, _, nvar, ncon = _layout(core)
+            if (cm.nvar, cm.ncon) != (nvar, ncon):
+                raise RuntimeError(
+                    f"cache entry does not fit its own record: the library has "
+                    f"{cm.nvar} variables / {cm.ncon} constraints where the "
+                    f"record laid out {nvar} / {ncon} — delete the entry")
+        pars = [r for r in core._records if r["kind"] == "par"]
         self._parref = self._match_pars(cm, pars)
         for r, ref in zip(pars, self._parref):
             cm.set_value(ref, r["values"])                 # live, per instance
@@ -347,6 +434,12 @@ class CachedModel(Model):
     # -- baked data: readable, not writable ------------------------------------
     def _slice(self, table, vec, handle):
         key = getattr(handle, "_key", None)
+        if key in self._unpublished:
+            raise TypeError(
+                "a dims-only constraint block cannot be addressed on a recipe "
+                "cache hit — the eager surface cannot name it into the "
+                "library's layout. Read the whole vector and slice it, or "
+                "build without cache=.")
         if key not in table:
             raise TypeError(f"{handle!r} is not a block of this model")
         off, n, dims = table[key]
@@ -391,6 +484,7 @@ class CachedModel(Model):
         t0 = time.perf_counter()
         x, info = solve_ipopt(self._cm, **options)
         return CachedSolution(x, info, self._var, self._con,
+                              unpublished=self._unpublished,
                               elapsed=time.perf_counter() - t0)
 
     def __repr__(self):
@@ -409,11 +503,12 @@ class CachedSolution:
                5: "USER_REQUESTED_STOP", -1: "MAXIMUM_ITERATIONS_EXCEEDED",
                -2: "RESTORATION_FAILED", -4: "MAXIMUM_CPUTIME_EXCEEDED"}
 
-    __slots__ = ("_x", "_info", "_var", "_con", "elapsed")
+    __slots__ = ("_x", "_info", "_var", "_con", "_unpublished", "elapsed")
 
-    def __init__(self, x, info, var, con, elapsed=float("nan")):
+    def __init__(self, x, info, var, con, unpublished=(), elapsed=float("nan")):
         self._x, self._info = np.asarray(x, dtype=np.float64), info
         self._var, self._con = var, con
+        self._unpublished = unpublished
         self.elapsed = elapsed
 
     @property
@@ -446,6 +541,12 @@ class CachedSolution:
 
     def _slice(self, table, vec, handle, what):
         key = getattr(handle, "_key", None)
+        if key in self._unpublished:
+            raise TypeError(
+                "a dims-only constraint block cannot be addressed on a recipe "
+                "cache hit — the eager surface cannot name it into the "
+                "library's layout. Read the whole vector and slice it, or "
+                "build without cache=.")
         if key not in table:
             raise TypeError(f"{handle!r} is not a {what} block of this solution's model")
         off, n, dims = table[key]

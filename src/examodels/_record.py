@@ -31,7 +31,7 @@ import numpy as np
 
 from .node import Block, Constraint, Expression, Product, _columns, is_table
 
-__all__ = ["RecordingCore", "PNode", "tracing"]
+__all__ = ["RecordingCore", "PNode", "PArg", "tracing"]
 
 _TRACING = contextvars.ContextVar("examodels_recording", default=False)
 
@@ -132,6 +132,60 @@ class PTupleSym(PNode):
         return self._arity
 
 
+class PArg:
+    """A recorded placeholder — `Arg`'s julia-free twin.
+
+    Holds a small tree over the argument ordinals: `("arg", k)` at a leaf,
+    `(op, a, b)` above it.  Arithmetic defers, in exactly `Arg`'s vocabulary;
+    control flow refuses with the same explanation, because the value it
+    stands for does not exist until the model is built.  The tree is
+    STRUCTURE: it becomes code in the compiled library, so it feeds the
+    fingerprint, never the data digest."""
+
+    __slots__ = ("tree",)
+
+    def __init__(self, tree):
+        object.__setattr__(self, "tree", tree)
+
+    def _op(self, op, other, flip=False):
+        if isinstance(other, PNode):
+            # an expression involving a placeholder is the expression's
+            # business — let PNode's reflected operator record it
+            return NotImplemented
+        o = other.tree if isinstance(other, PArg) else other
+        a, b = (o, self.tree) if flip else (self.tree, o)
+        return PArg((op, a, b))
+
+    def __add__(self, o):     return self._op("+", o)
+    def __radd__(self, o):    return self._op("+", o, flip=True)
+    def __sub__(self, o):     return self._op("-", o)
+    def __rsub__(self, o):    return self._op("-", o, flip=True)
+    def __mul__(self, o):     return self._op("*", o)
+    def __rmul__(self, o):    return self._op("*", o, flip=True)
+    def __truediv__(self, o): return self._op("/", o)
+    def __rtruediv__(self, o): return self._op("/", o, flip=True)
+    def __neg__(self):        return self._op("-", 0, flip=True)
+    def __pow__(self, n):     return self._op("^", n)
+
+    def _refuse(self, what):
+        raise TypeError(
+            f"cannot {what} a placeholder: its value is not known until the "
+            f"model is built. Compute it before building and pass it as one of "
+            f"the arguments to `Model(core, ...)`, or use it symbolically — "
+            f"`N - 1` and `srange(0, N)` are fine.")
+
+    def __len__(self):    self._refuse("take len() of")
+    def __int__(self):    self._refuse("convert")
+    def __index__(self):  self._refuse("index with")
+    def __iter__(self):   self._refuse("iterate")
+    def __bool__(self):   self._refuse("branch on")
+    def __lt__(self, o):  self._refuse("compare")
+    __le__ = __gt__ = __ge__ = __lt__
+
+    def __repr__(self):
+        return f"<recorded placeholder {self.tree!r}>"
+
+
 class RBlock(Block):
     """A recorded block of variables or parameters.  Indexing produces recorded
     nodes; the index arithmetic and bounds checks are `Block`'s own."""
@@ -143,6 +197,8 @@ class RBlock(Block):
         self._key = key                       # ("var" | "par", ordinal)
 
     def _axis(self, i, axis):
+        if isinstance(self._axes[axis], PArg):
+            return i          # placeholder-sized: no bound to check against yet
         if isinstance(i, (int, np.integer)):
             return super()._axis(i, axis)
         return i                              # an index expression, recorded as-is
@@ -185,6 +241,30 @@ def _is_oracle(v):
     return isinstance(v, Oracle)
 
 
+def _rdata(v, what):
+    """Recorded data: a placeholder passes through (it is structure — it
+    becomes code reading the argument), anything else takes the eager path's
+    own validation."""
+    from .core import _data
+    return v if isinstance(v, PArg) else _data(v, what)
+
+
+def _rd_obj(v, args):
+    """A recorded data value for replay: placeholder trees become eager `Arg`
+    arithmetic, everything else is already the value."""
+    return _arg_obj(v.tree, args) if isinstance(v, PArg) else v
+
+
+def _arg_obj(t, args):
+    """A recorded size tree back as eager `Arg` arithmetic, for replay."""
+    if not isinstance(t, tuple):
+        return t
+    if t[0] == "arg":
+        return args[t[1]]
+    op, a, b = t
+    return _EV_BIN[op](_arg_obj(a, args), _arg_obj(b, args))
+
+
 from .core import Core as _Core  # noqa: E402  (cycle-safe: core never imports us at module level)
 
 
@@ -198,9 +278,6 @@ class RecordingCore(_Core):
     nscen = 0
 
     def __init__(self, backend=None, minimize=True, nargs=0, cache=True):
-        if nargs:
-            raise NotImplementedError(
-                "recipes (nargs=) cannot be cached yet; build without cache=")
         if backend is not None and (not isinstance(backend, str)
                                     or backend not in ("serial", "cpu")):
             raise ValueError(
@@ -209,7 +286,9 @@ class RecordingCore(_Core):
         self._backend = backend
         self._minimize = minimize
         self.cache = cache
-        self.args = ()
+        self._nargs = nargs
+        #: recorded placeholders — `Arg`'s twins, one per `nargs`
+        self.args = tuple(PArg(("arg", k)) for k in range(nargs))
         self._records = []
         self._counts = {"var": 0, "par": 0, "con": 0}
         self._named = {}
@@ -238,8 +317,11 @@ class RecordingCore(_Core):
         """(structural kind + data, row count) for an index set."""
         from .recipe import SRange
         if isinstance(over, SRange):
-            raise NotImplementedError(
-                "recipes (srange) cannot be cached yet; build without cache=")
+            # placeholder bounds: the whole description is structure (it
+            # becomes code), and the row count is unknown until instantiation
+            lo = over.start.tree if isinstance(over.start, PArg) else over.start
+            hi = over.stop.tree if isinstance(over.stop, PArg) else over.stop
+            return ("srange", lo, hi), None
         if isinstance(over, range):
             if over.step != 1:
                 return ("steprange", over.start, over.stop, over.step), len(over)
@@ -255,8 +337,9 @@ class RecordingCore(_Core):
             f"range, a product, or a table of named rows")
 
     @staticmethod
-    def _over_obj(desc):
-        """The index set back from its description, for replay."""
+    def _over_obj(desc, args=()):
+        """The index set back from its description, for replay.  `args` are
+        the eager core's placeholders, for an srange's recorded bounds."""
         kind = desc[0]
         if kind == "range":
             return range(desc[1], desc[2] + 1)
@@ -264,6 +347,9 @@ class RecordingCore(_Core):
             return range(desc[1], desc[2], desc[3])
         if kind == "product":
             return Product(*(range(lo, hi + 1) for lo, hi in desc[1]))
+        if kind == "srange":
+            from .recipe import SRange
+            return SRange(_arg_obj(desc[1], args), _arg_obj(desc[2], args))
         fields, dtypes, cols = desc[1], desc[2], desc[3]
         arr = np.empty(len(cols[0]), dtype=[(f, c.dtype) for f, c in zip(fields, cols)])
         for f, c in zip(fields, cols):
@@ -272,13 +358,24 @@ class RecordingCore(_Core):
 
     # -- the Core surface -----------------------------------------------------
     def add_var(self, *dims, start=0.0, lvar=None, uvar=None, tag=None, name=None):
-        from .core import _data
         if tag is not None:
             raise NotImplementedError("tags cannot be cached yet; build without cache=")
         _refuse(dims, "add_var")
         if len(dims) == 1 and (isinstance(dims[0], types.GeneratorType)
                                or callable(dims[0])):
             return self._defined_var(dims[0], start, lvar, uvar)
+        if len(dims) == 1 and isinstance(dims[0], PArg):
+            # a placeholder-sized block, mirroring the eager arm: the size is
+            # a tree over the arguments, and no range exists to bound-check
+            k = self._ordinal("var")
+            self._records.append({
+                "kind": "var", "ordinal": k, "axes": None,
+                "size": dims[0].tree,
+                "start": _rdata(start, "start"),
+                "lvar": None if lvar is None else _rdata(lvar, "lvar"),
+                "uvar": None if uvar is None else _rdata(uvar, "uvar"),
+                "name": None if name is None else str(name)})
+            return self._remember(name, RBlock(("var", k), (dims[0],)))
         for d in dims:
             if isinstance(d, range) and d.step != 1:
                 raise TypeError(
@@ -293,9 +390,9 @@ class RecordingCore(_Core):
         self._records.append({
             "kind": "var", "ordinal": k,
             "axes": tuple((a.start, a.stop - 1) for a in axes),
-            "start": _data(start, "start"),
-            "lvar": None if lvar is None else _data(lvar, "lvar"),
-            "uvar": None if uvar is None else _data(uvar, "uvar"),
+            "start": _rdata(start, "start"),
+            "lvar": None if lvar is None else _rdata(lvar, "lvar"),
+            "uvar": None if uvar is None else _rdata(uvar, "uvar"),
             "name": None if name is None else str(name)})
         return self._remember(name, RBlock(("var", k), tuple(axes)))
 
@@ -350,7 +447,7 @@ class RecordingCore(_Core):
             self._records.append({
                 "kind": "con_dims", "ordinal": k,
                 "axes": tuple((a.start, a.stop - 1) for a in axes),
-                "lcon": _data(lcon, "lcon"), "ucon": _data(ucon, "ucon")})
+                "lcon": _rdata(lcon, "lcon"), "ucon": _rdata(ucon, "ucon")})
             return RConstraint(("con", k), n, 1 - axes[0].start)
         if args and isinstance(args[0], Constraint):
             constraint, f, *rest = args
@@ -364,7 +461,7 @@ class RecordingCore(_Core):
         start = over.start if isinstance(over, range) else 0
         self._records.append({
             "kind": "con", "ordinal": k, "tree": tree, "over": desc,
-            "lcon": _data(lcon, "lcon"), "ucon": _data(ucon, "ucon"),
+            "lcon": _rdata(lcon, "lcon"), "ucon": _rdata(ucon, "ucon"),
             "name": None if name is None else str(name)})
         return self._remember(name, RConstraint(("con", k), n, 1 - start))
 
@@ -396,15 +493,19 @@ class RecordingCore(_Core):
         """
         s, d = hashlib.sha256(), hashlib.sha256()
         s.update(f"examodels-record-v0;minimize={self._minimize};"
-                 f"backend={self._backend}".encode())
+                 f"backend={self._backend};nargs={self._nargs}".encode())
         for r in self._records:
             kind = r["kind"]
             s.update(f"|{kind}".encode())
             if kind == "var":
-                s.update(f";ndims={len(r['axes'])};name={r['name']}".encode())
-                _d_val(d, np.asarray(r["axes"], dtype=np.int64))
+                if r["axes"] is None:
+                    # placeholder-sized: the size tree is code, hence structure
+                    s.update(f";size={r['size']!r};name={r['name']}".encode())
+                else:
+                    s.update(f";ndims={len(r['axes'])};name={r['name']}".encode())
+                    _d_val(d, np.asarray(r["axes"], dtype=np.int64))
                 for key in ("start", "lvar", "uvar"):
-                    _d_val(d, r[key])
+                    _sd_val(r[key], s, d)
             elif kind == "par":
                 s.update(f";n={r['values'].size};name={r['name']}".encode())
                 # values excluded: live per-instance through P_set_value
@@ -413,13 +514,13 @@ class RecordingCore(_Core):
                 _h_over(r["over"], s, d)
                 s.update(f";name={r['name']}".encode())
                 if kind == "con":
-                    _d_val(d, r["lcon"])
-                    _d_val(d, r["ucon"])
+                    _sd_val(r["lcon"], s, d)
+                    _sd_val(r["ucon"], s, d)
             elif kind == "con_dims":
                 s.update(f";ndims={len(r['axes'])}".encode())
                 _d_val(d, np.asarray(r["axes"], dtype=np.int64))
-                _d_val(d, r["lcon"])
-                _d_val(d, r["ucon"])
+                _sd_val(r["lcon"], s, d)
+                _sd_val(r["ucon"], s, d)
             elif kind == "aug":
                 s.update(f";con={r['con'][1]}".encode())
                 _walk(r["idx"], s, d)
@@ -430,45 +531,49 @@ class RecordingCore(_Core):
     # -- replay ---------------------------------------------------------------
     def replay(self, backend=None):
         """Re-run the record through the ordinary eager path — Julia boots here.
-        Returns the eager `Core`, ready for `Model` or `compile_library`."""
+        Returns the eager `Core`, ready for `Model` or `compile_library`.  A
+        recipe replays as a recipe: recorded placeholder trees are rebuilt as
+        arithmetic over the eager core's own `Arg`s."""
         from .core import Core
         core = Core(backend=self._backend if backend is None else backend,
-                    minimize=self._minimize)
-        handles = {}
+                    minimize=self._minimize, nargs=self._nargs)
+        a, handles = core.args, {}
         for r in self._records:
             kind = r["kind"]
             if kind == "var":
-                kw = {"start": r["start"]}
+                kw = {"start": _rd_obj(r["start"], a)}
                 if r["lvar"] is not None:
-                    kw["lvar"] = r["lvar"]
+                    kw["lvar"] = _rd_obj(r["lvar"], a)
                 if r["uvar"] is not None:
-                    kw["uvar"] = r["uvar"]
+                    kw["uvar"] = _rd_obj(r["uvar"], a)
                 if r["name"] is not None:
                     kw["name"] = r["name"]
-                handles[("var", r["ordinal"])] = core.add_var(
-                    *(range(lo, hi + 1) for lo, hi in r["axes"]), **kw)
+                dims = ((_arg_obj(r["size"], a),) if r["axes"] is None else
+                        tuple(range(lo, hi + 1) for lo, hi in r["axes"]))
+                handles[("var", r["ordinal"])] = core.add_var(*dims, **kw)
             elif kind == "par":
                 kw = {"name": r["name"]} if r["name"] is not None else {}
                 handles[("par", r["ordinal"])] = core.add_par(r["values"], **kw)
             elif kind == "obj":
                 kw = {"name": r["name"]} if r["name"] is not None else {}
-                core.add_obj(_render(r["tree"], handles),
-                             over=self._over_obj(r["over"]), **kw)
+                core.add_obj(_render(r["tree"], handles, a),
+                             over=self._over_obj(r["over"], a), **kw)
             elif kind == "con":
                 kw = {"name": r["name"]} if r["name"] is not None else {}
                 handles[("con", r["ordinal"])] = core.add_con(
-                    _render(r["tree"], handles), over=self._over_obj(r["over"]),
-                    lcon=r["lcon"], ucon=r["ucon"], **kw)
+                    _render(r["tree"], handles, a),
+                    over=self._over_obj(r["over"], a),
+                    lcon=_rd_obj(r["lcon"], a), ucon=_rd_obj(r["ucon"], a), **kw)
             elif kind == "con_dims":
                 handles[("con", r["ordinal"])] = core.add_con(
                     *(range(lo, hi + 1) for lo, hi in r["axes"]),
-                    lcon=r["lcon"], ucon=r["ucon"])
+                    lcon=_rd_obj(r["lcon"], a), ucon=_rd_obj(r["ucon"], a))
             elif kind == "aug":
                 core.add_con(
                     handles[r["con"]],
-                    lambda i, _r=r: (_ev(_r["idx"], handles, i),
-                                     _ev(_r["expr"], handles, i)),
-                    self._over_obj(r["over"]))
+                    lambda i, _r=r: (_ev(_r["idx"], handles, i, a),
+                                     _ev(_r["expr"], handles, i, a)),
+                    self._over_obj(r["over"], a))
         return core
 
     # build() is inherited: `Core.build` is `Model(self)`, which is where the
@@ -480,36 +585,40 @@ class RecordingCore(_Core):
 
 # -- tree evaluation (replay) and hashing -------------------------------------
 
-def _render(tree, handles):
+def _render(tree, handles, args=()):
     """The recorded tree as a function of the symbolic index, for the eager path."""
-    return lambda i: _ev(tree, handles, i)
+    return lambda i: _ev(tree, handles, i, args)
 
 
-def _ev(t, handles, sym):
+def _ev(t, handles, sym, args=()):
+    def ev(x):
+        return _ev(x, handles, sym, args)
+    if isinstance(t, PArg):
+        return _arg_obj(t.tree, args)
     if not isinstance(t, PNode):
         return t
     op, a = t.op, t.args
     if op == "sym":
         return sym
     if op == "ref":
-        idx = tuple(_ev(i, handles, sym) for i in a[1:])
+        idx = tuple(ev(i) for i in a[1:])
         return handles[a[0]._key][idx[0] if len(idx) == 1 else idx]
     if op == "at":
-        return _ev(a[0], handles, sym)[_ev(a[1], handles, sym)]
+        return ev(a[0])[ev(a[1])]
     if op == "field":
-        return getattr(_ev(a[0], handles, sym), a[1])
+        return getattr(ev(a[0]), a[1])
     if op == "powi":
-        return _ev(a[0], handles, sym) ** a[1]
+        return ev(a[0]) ** a[1]
     if op == "neg":
-        return -_ev(a[0], handles, sym)
+        return -ev(a[0])
     if op == "const":
         from .node import Constant
         return Constant(a[0])
     if op in ("sum", "prod"):
         from . import node
-        return getattr(node, op)([_ev(x, handles, sym) for x in a])
+        return getattr(node, op)([ev(x) for x in a])
     if op in _EV_BIN:
-        return _EV_BIN[op](_ev(a[0], handles, sym), _ev(a[1], handles, sym))
+        return _EV_BIN[op](ev(a[0]), ev(a[1]))
     from . import ops  # a registered math function, by name — validates it too
     try:
         fn = getattr(ops, op)
@@ -517,7 +626,7 @@ def _ev(t, handles, sym):
         raise TypeError(
             f"{op!r} was recorded as an operator but ExaModels registers no such "
             f"function — is it misspelled?") from None
-    return fn(*(_ev(x, handles, sym) for x in a))
+    return fn(*(ev(x) for x in a))
 
 
 import operator as _operator  # noqa: E402
@@ -526,9 +635,20 @@ _EV_BIN = {"+": _operator.add, "-": _operator.sub, "*": _operator.mul,
            "/": _operator.truediv, "^": _operator.pow}
 
 
+def _sd_val(v, s, d):
+    """A recorded data value into the right hash: a placeholder is code and
+    goes to structure; anything else is baked and goes to the data digest."""
+    if isinstance(v, PArg):
+        s.update(f"(arg:{v.tree!r})".encode())
+    else:
+        _d_val(d, v)
+
+
 def _walk(t, s, d):
     """One canonical serialization pass: structure into `s`, values into `d`."""
-    if isinstance(t, PNode):
+    if isinstance(t, PArg):
+        s.update(f"(arg:{t.tree!r})".encode())
+    elif isinstance(t, PNode):
         op, a = t.op, t.args
         if op == "ref":
             key = a[0]._key
@@ -568,6 +688,10 @@ def _h_over(desc, s, d):
     if kind in ("range", "steprange"):
         s.update(f";over={kind}".encode())
         d.update(repr(desc[1:]).encode())
+    elif kind == "srange":
+        # placeholder bounds become code, so the whole set is structure —
+        # including a literal bound, which the compiler bakes
+        s.update(f";over=srange:{desc[1]!r}:{desc[2]!r}".encode())
     elif kind == "product":
         s.update(f";over=product{len(desc[1])}".encode())
         d.update(repr(desc[1]).encode())

@@ -20,7 +20,11 @@ docs = ["sphinx>=7", "myst-parser>=2", "furo"]
 cuda = ["cupy-cuda12x>=13"]
 # The cache-hit half of Core(cache=...): loading a compiled entry (cnlpmodels)
 # and solving it without Julia (cyipopt). Imported lazily, only on a hit.
-cache = ["cnlpmodels", "cyipopt"]
+# cnlpmodels is unreleased, so the extra carries a direct reference; PyPI
+# rejects those, so publishing examodels means publishing cnlpmodels FIRST
+# and flattening this to `cnlpmodels>=0.1`.
+cache = ["cnlpmodels @ git+https://github.com/madsuite-org/cnlpmodels-py",
+         "cyipopt"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

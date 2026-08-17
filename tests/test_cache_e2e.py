@@ -192,3 +192,96 @@ def test_fresh_process_hits_solves_and_never_boots_julia(primed):
     assert got["success"] is True
     assert got["viol"] < 1e-7
     assert got["y_len"] == 7
+
+
+# -- recipes: one compiled entry, any instantiation of the same types --------
+
+RECIPE = textwrap.dedent("""
+    def build_recipe(exa):
+        core = exa.Core(nargs=1, cache=True)
+        (n,) = core.args
+        x = core.add_var(n, start=1.5)
+        p = core.add_par([2.0])
+        core.add_obj(lambda i: (x[i] - 2.0) ** 2 + p[0] * x[i], over=exa.srange(0, n))
+        core.add_con(lambda i: x[i] + x[i + 1], over=exa.srange(0, n - 1),
+                     lcon=0.0, ucon=10.0)
+        return core, x, p
+""")
+
+
+def _rsub(body, root, timeout):
+    env = dict(os.environ, EXAMODELS_CACHE=root)
+    out = subprocess.run([sys.executable, "-c", RECIPE + textwrap.dedent(body)],
+                         env=env, capture_output=True, text=True, timeout=timeout)
+    assert out.returncode == 0, (out.stdout[-1000:], out.stderr[-3000:])
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+@pytest.fixture(scope="module")
+def primed_recipe(tmp_path_factory):
+    """One compiled recipe entry (built at n=8), plus the eager instance's
+    numbers at that size."""
+    root = str(tmp_path_factory.mktemp("rcache"))
+    eager = _rsub("""
+        import json, sys
+        import examodels as exa
+        core, x, p = build_recipe(exa)
+        m = exa.Model(core, 8)             # miss: replay + compile + store
+        assert type(m).__name__ == "Model", type(m).__name__
+        z = [float(k) / 4 for k in range(8)]
+        print(json.dumps({"obj": m.objective(z), "cons": list(m.constraints(z))}))
+    """, root, timeout=900)
+    return {"root": root, "eager": eager}
+
+
+def test_recipe_hit_at_the_compiled_size(primed_recipe):
+    got = _rsub("""
+        import json, sys
+        import examodels as exa
+        core, x, p = build_recipe(exa)
+        m = exa.Model(core, 8)
+        assert type(m).__name__ == "CachedModel", type(m).__name__
+        z = [float(k) / 4 for k in range(8)]
+        print(json.dumps({"obj": m.objective(z), "cons": list(m.constraints(z)),
+                          "julia_free": "juliacall" not in sys.modules}))
+    """, primed_recipe["root"], timeout=120)
+    assert got["julia_free"] is True
+    np.testing.assert_allclose(got["obj"], primed_recipe["eager"]["obj"], rtol=1e-12)
+    np.testing.assert_allclose(got["cons"], primed_recipe["eager"]["cons"], rtol=1e-12)
+
+
+def test_recipe_hit_at_a_different_size(primed_recipe):
+    """The property that makes recipe caching the stronger form: the argument's
+    VALUE is per-instance, so one compiled entry serves every size."""
+    got = _rsub("""
+        import json, sys
+        import examodels as exa
+        core, x, p = build_recipe(exa)
+        m = exa.Model(core, 20)            # never compiled at 20
+        assert type(m).__name__ == "CachedModel", type(m).__name__
+        sol = m.solve(print_level=0, sb="yes")
+        print(json.dumps({"nvar": m.nvar, "ncon": m.ncon,
+                          "success": bool(sol.success),
+                          "x_len": len(sol[x]), "pars": list(m.parameters(p)),
+                          "viol": float(m.violation(sol.x)),
+                          "julia_free": "juliacall" not in sys.modules}))
+    """, primed_recipe["root"], timeout=300)
+    assert got["julia_free"] is True
+    assert (got["nvar"], got["ncon"]) == (20, 19)
+    assert got["success"] is True and got["viol"] < 1e-7
+    assert got["x_len"] == 20
+    assert got["pars"] == [2.0]
+
+
+def test_recipe_argument_of_a_different_type_misses(primed_recipe):
+    core = None
+    ns = {}
+    exec(RECIPE, ns)
+    core, x, p = ns["build_recipe"](exa)
+    fp, dd = core.fingerprint()
+    os.environ["EXAMODELS_CACHE"] = primed_recipe["root"]
+    try:
+        assert _cache._match(core, fp, dd, _cache._argsig((8,))) is not None
+        assert _cache._match(core, fp, dd, _cache._argsig((8.0,))) is None
+    finally:
+        del os.environ["EXAMODELS_CACHE"]

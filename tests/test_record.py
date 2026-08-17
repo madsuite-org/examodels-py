@@ -205,8 +205,8 @@ def test_parameter_values_are_in_neither_digest():
 # -- refusals -----------------------------------------------------------------
 
 def test_unsupported_features_are_refused_up_front():
-    with pytest.raises(NotImplementedError, match="recipes"):
-        exa.Core(cache=True, nargs=2)
+    # recipes (nargs=) record since the recipe-cache milestone; the refusals
+    # that remain are the ones a compiled CPU library genuinely cannot carry
     with pytest.raises(ValueError, match="cannot be cached"):
         exa.Core(cache=True, backend="cuda")
     with pytest.raises(NotImplementedError, match="tags"):

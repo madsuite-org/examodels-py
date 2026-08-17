@@ -219,3 +219,100 @@ def test_lookup_path_is_julia_free():
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "ok"
+
+
+# -- recipes (nargs=) ---------------------------------------------------------
+
+def _recipe():
+    core = exa.Core(nargs=1, cache=True)
+    (n,) = core.args
+    x = core.add_var(n, start=1.5)
+    p = core.add_par([2.0])
+    core.add_obj(lambda i: (x[i] - 2.0) ** 2 + p[0] * x[i], over=exa.srange(0, n))
+    core.add_con(lambda i: x[i] + x[i + 1], over=exa.srange(0, n - 1),
+                 lcon=0.0, ucon=10.0)
+    return core, x, p
+
+
+def test_argsig_is_types_not_values():
+    sig = _cache._argsig
+    assert sig((10,)) == sig((50,)) == "i64"                # value-free
+    assert sig((10.0,)) == "f64" and sig((10,)) != sig((10.0,))
+    assert sig((np.arange(3),)) == "vec:i64"
+    assert sig((np.arange(3.0),)) == "vec:f64"
+    assert sig(("case.m",)) == "str"
+    assert sig((10, np.zeros(2))) == "i64;vec:f64"
+    with pytest.raises(TypeError, match="bool"):
+        sig((True,))
+
+
+def test_recipe_entry_key_carries_the_argsig(monkeypatch, tmp_path):
+    monkeypatch.setenv("EXAMODELS_CACHE", str(tmp_path))
+    fp, dd = "f" * 64, "d" * 64
+    plain = _cache._entries(True, fp, dd)[0]
+    intkey = _cache._entries(True, fp, dd, "i64")[0]
+    veckey = _cache._entries(True, fp, dd, "vec:f64")[0]
+    assert plain == str(tmp_path / ("f" * 16 + "d" * 16))   # fixed form unchanged
+    assert len({plain, intkey, veckey}) == 3
+
+
+def test_recipe_fingerprint_semantics():
+    """Sizes and bounds written against a placeholder are STRUCTURE; the
+    argument's value never enters the record at all."""
+    base, _, _ = _recipe()
+    fp, dd = base.fingerprint()
+    assert (fp, dd) == base.fingerprint()                   # stable
+    # a different size EXPRESSION is different code
+    other = exa.Core(nargs=1, cache=True)
+    (n,) = other.args
+    x = other.add_var(2 * n, start=1.5)
+    p = other.add_par([2.0])
+    other.add_obj(lambda i: (x[i] - 2.0) ** 2 + p[0] * x[i], over=exa.srange(0, n))
+    other.add_con(lambda i: x[i] + x[i + 1], over=exa.srange(0, n - 1),
+                  lcon=0.0, ucon=10.0)
+    assert other.fingerprint()[0] != fp
+    # a changed literal in a recipe still moves only the data digest
+    third, _, _ = _recipe()
+    third._records[0]["start"] = 9.9
+    fp3, dd3 = third.fingerprint()
+    assert fp3 == fp and dd3 != dd
+
+
+def test_recipe_wrapper_reads_layout_from_the_instance():
+    core, x, p = _recipe()
+    core.add_con(2, lcon=-1.0, ucon=1.0)                    # dims-only: unpublishable
+    stub = _StubCM()
+    stub.nvar, stub.ncon = 8, 9
+    stub._vars = {"_v0": _Ref(0)}
+    stub._cons = {"_c0": _Ref(1)}
+    v, c = _Ref(0), _Ref(1)
+    v.kind, v.offset, v.length, v.dims = "var", 0, 8, (8,)
+    c.kind, c.offset, c.length, c.dims = "con", 0, 7, (7,)
+    stub._vars["_v0"], stub._cons["_c0"] = v, c
+    m = CachedModel._load(stub, core)
+    assert m.get_start(x).shape == (8,)                     # from the instance
+    assert m.parameters(p).tolist() == [2.0]
+    dims_handle = _key_holder(("con", 1))
+    with pytest.raises(TypeError, match="dims-only"):
+        m.get_ucon(dims_handle)
+
+
+def test_recording_a_recipe_is_julia_free():
+    import subprocess
+    import textwrap
+    script = textwrap.dedent("""
+        import sys
+        import examodels as exa
+        core = exa.Core(nargs=2, cache=True)
+        n, w = core.args
+        x = core.add_var(n, start=0.5)
+        core.add_obj(lambda i: w * (x[i] - 1.0) ** 2, over=exa.srange(0, n))
+        fp, dd = core.fingerprint()
+        assert (fp, dd) == core.fingerprint()
+        assert "juliacall" not in sys.modules, "recipe recording booted Julia"
+        print("ok")
+    """)
+    out = subprocess.run([sys.executable, "-c", script],
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "ok"

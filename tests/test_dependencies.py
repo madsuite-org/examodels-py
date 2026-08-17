@@ -60,7 +60,8 @@ def test_python_dependencies_are_only_what_we_declare():
     declared = _load_toml(ROOT.parents[1] / "pyproject.toml")
 
     def names_of(entries):
-        return {d.split(">=")[0].split("[")[0].split("-cuda")[0].strip()
+        # `name @ url` is a PEP 508 direct reference — the name is what counts
+        return {d.split("@")[0].split(">=")[0].split("[")[0].split("-cuda")[0].strip()
                 for d in entries}
 
     required = names_of(declared["project"]["dependencies"])
