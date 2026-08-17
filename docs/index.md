@@ -47,8 +47,6 @@ install
 simd
 tutorial/index
 recipe
-oracle
-two_stage
 cupy
 api
 ```

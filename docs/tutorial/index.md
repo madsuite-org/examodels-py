@@ -10,4 +10,6 @@ parameters
 performance
 gpu
 opf
+oracle
+two_stage
 ```
