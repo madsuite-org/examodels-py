@@ -16,8 +16,8 @@ Models are written in Python; ExaModels.jl evaluates them — objective,
 constraints, and sparse first and second derivatives — through
 pattern-specialized kernels, on CPU threads or GPUs. A model is a small number
 of algebraic patterns, each paired with an iterator over the data points where
-the pattern applies; a generator expression carries both, so the model reads
-the way it reads in ExaModels.jl:
+the pattern applies — written as a function of the index plus its index set,
+the one spelling that serves every model, fixed or [recipe](https://madsuite.org/examodels-py/recipe/):
 
 ```python
 import examodels as exa
@@ -26,12 +26,13 @@ N = 10
 core = exa.Core()
 x = core.add_var(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])
 
-core.add_obj(100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2 for i in range(1, N))
+core.add_obj(lambda i: 100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2,
+             over=range(1, N))
 
-core.add_con((3 * x[i+1]**3 + 2 * x[i+2] - 5
-              + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
-              + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3
-              for i in range(0, N - 2)), lcon=0.0, ucon=0.0)
+core.add_con(lambda i: 3 * x[i+1]**3 + 2 * x[i+2] - 5
+             + exa.sin(x[i+1] - x[i+2]) * exa.sin(x[i+1] + x[i+2])
+             + 4 * x[i+1] - x[i] * exa.exp(x[i] - x[i+1]) - 3,
+             over=range(0, N - 2), lcon=0.0, ucon=0.0)
 
 model = exa.Model(core)
 sol = model.solve(solver="ipopt")
@@ -41,6 +42,10 @@ print(sol.status, sol.objective, sol[x])
 ```
 first_order 6.2324586324 [-0.95055636  0.91390082  0.98909052 ... 0.99999993]
 ```
+
+For a fixed model, a generator expression is equivalent sugar that reads
+closest to ExaModels.jl itself:
+`core.add_obj(100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2 for i in range(1, N))`.
 
 What the SIMD abstraction buys — pattern-specialized derivative kernels,
 coloring-free sparse automatic differentiation, native GPU execution — is
