@@ -292,6 +292,12 @@ class RecordingCore(_Core):
         self._records = []
         self._counts = {"var": 0, "par": 0, "con": 0}
         self._named = {}
+        #: every handle handed to the caller, for replay to graft (see there)
+        self._issued = []
+
+    def _issue(self, handle):
+        self._issued.append(handle)
+        return handle
 
     # -- recording helpers ----------------------------------------------------
     def _ordinal(self, kind):
@@ -375,7 +381,7 @@ class RecordingCore(_Core):
                 "lvar": None if lvar is None else _rdata(lvar, "lvar"),
                 "uvar": None if uvar is None else _rdata(uvar, "uvar"),
                 "name": None if name is None else str(name)})
-            return self._remember(name, RBlock(("var", k), (dims[0],)))
+            return self._issue(self._remember(name, RBlock(("var", k), (dims[0],))))
         for d in dims:
             if isinstance(d, range) and d.step != 1:
                 raise TypeError(
@@ -394,7 +400,7 @@ class RecordingCore(_Core):
             "lvar": None if lvar is None else _rdata(lvar, "lvar"),
             "uvar": None if uvar is None else _rdata(uvar, "uvar"),
             "name": None if name is None else str(name)})
-        return self._remember(name, RBlock(("var", k), tuple(axes)))
+        return self._issue(self._remember(name, RBlock(("var", k), tuple(axes))))
 
     def _defined_var(self, f, start, lvar, uvar):
         from .core import _as_function
@@ -410,7 +416,7 @@ class RecordingCore(_Core):
         k = self._ordinal("par")
         self._records.append({"kind": "par", "ordinal": k, "values": arr,
                               "name": None if name is None else str(name)})
-        return self._remember(name, RBlock(("par", k), arr.size, "parameter"))
+        return self._issue(self._remember(name, RBlock(("par", k), arr.size, "parameter")))
 
     def add_expr(self, f, over=None, name=None):
         from .core import _as_function
@@ -448,7 +454,7 @@ class RecordingCore(_Core):
                 "kind": "con_dims", "ordinal": k,
                 "axes": tuple((a.start, a.stop - 1) for a in axes),
                 "lcon": _rdata(lcon, "lcon"), "ucon": _rdata(ucon, "ucon")})
-            return RConstraint(("con", k), n, 1 - axes[0].start)
+            return self._issue(RConstraint(("con", k), n, 1 - axes[0].start))
         if args and isinstance(args[0], Constraint):
             constraint, f, *rest = args
             return self._augment(constraint, f, rest[0] if rest else over)
@@ -463,7 +469,7 @@ class RecordingCore(_Core):
             "kind": "con", "ordinal": k, "tree": tree, "over": desc,
             "lcon": _rdata(lcon, "lcon"), "ucon": _rdata(ucon, "ucon"),
             "name": None if name is None else str(name)})
-        return self._remember(name, RConstraint(("con", k), n, 1 - start))
+        return self._issue(self._remember(name, RConstraint(("con", k), n, 1 - start)))
 
     def _augment(self, constraint, f, over):
         from .core import _as_function
@@ -574,6 +580,16 @@ class RecordingCore(_Core):
                     lambda i, _r=r: (_ev(_r["idx"], handles, i, a),
                                      _ev(_r["expr"], handles, i, a)),
                     self._over_obj(r["over"], a))
+        # The caller's handles are the RECORDED blocks, whose `_jl` is None —
+        # but a miss run returns the EAGER model, which can only be addressed
+        # by backend handles.  Grafting each replayed handle's `_jl` onto the
+        # recorded one the caller already holds is what makes `sol[x]` and
+        # `model.parameters(p)` work on that run.  (A later hit in a fresh
+        # process never sees these: CachedModel addresses by `_key`.)
+        for h in self._issued:
+            got = handles.get(h._key)
+            if got is not None:
+                h._jl = got._jl
         return core
 
     # build() is inherited: `Core.build` is `Model(self)`, which is where the

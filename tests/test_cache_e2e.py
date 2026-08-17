@@ -83,6 +83,12 @@ def primed(tmp_path_factory):
         assert core._records[1]["name"] is None
         m2 = exa.Model(core)               # same process: eager fallback, no rebuild
         assert type(m2).__name__ == "Model", type(m2).__name__
+        # the MISS run must be fully usable through the recorded handles
+        # (replay grafts the eager handles onto them): parameters, a solve,
+        # and solution slicing — the exact surface a hit run offers
+        assert list(m.parameters(p)) == [1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
+        sol = m.solve(print_level=0)
+        assert len(sol[x]) == 6 and len(sol.multipliers_L(x)) == 6
         z = {Z}
         print(json.dumps({{"obj": m.objective(z), "grad": list(m.gradient(z)),
                            "cons": list(m.constraints(z))}}))
@@ -228,6 +234,10 @@ def primed_recipe(tmp_path_factory):
         core, x, p = build_recipe(exa)
         m = exa.Model(core, 8)             # miss: replay + compile + store
         assert type(m).__name__ == "Model", type(m).__name__
+        # the recipe MISS run, too, is fully usable through recorded handles
+        assert list(m.parameters(p)) == [2.0]
+        sol = m.solve(print_level=0)
+        assert len(sol[x]) == 8
         z = [float(k) / 4 for k in range(8)]
         print(json.dumps({"obj": m.objective(z), "cons": list(m.constraints(z))}))
     """, root, timeout=900)
