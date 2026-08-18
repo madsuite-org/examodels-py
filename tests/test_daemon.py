@@ -20,11 +20,12 @@ from examodels._warm import DaemonModel, DaemonSolution, DispatchCore
 from examodels.core import Core as EagerCore
 
 
-def _spawn(path):
+def _spawn(path, *extra):
     env = dict(os.environ)
     env.pop("EXAMODELS_DAEMON", None)      # serve() sets its own guard
     proc = subprocess.Popen(
-        [sys.executable, "-m", "examodels.daemon", "serve", "--socket", path],
+        [sys.executable, "-m", "examodels.daemon", "serve", "--socket", path,
+         *extra],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for _ in range(100):
         if os.path.exists(path):
@@ -48,12 +49,16 @@ def daemon(tmp_path_factory):
         proc.kill()
 
 
-def _solves(path):
+def _stat(path):
     sock = _wire.connect(path)
     _wire.send(sock, {"op": "STATUS"})
     reply = _wire.recv(sock)
     sock.close()
-    return reply["solves"]
+    return reply
+
+
+def _solves(path):
+    return _stat(path)["solves"]
 
 
 def _rosenbrock(n=12):
@@ -158,3 +163,90 @@ def test_a_second_daemon_refuses_the_busy_socket(daemon):
         capture_output=True, text=True, timeout=30)
     assert out.returncode == 1
     assert "already serving" in out.stderr
+
+
+# ---- phase 2: live instances -------------------------------------------------
+
+@requires("ipopt")
+def test_a_repeated_model_reuses_the_live_instance(daemon, monkeypatch):
+    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    s0 = _stat(daemon)
+    core1, x1 = _rosenbrock(9)
+    a = exa.Model(core1).solve(print_level=0, sb="yes")
+    core2, x2 = _rosenbrock(9)          # same structure, same data
+    b = exa.Model(core2).solve(print_level=0, sb="yes")
+    s1 = _stat(daemon)
+    assert s1["solves"] == s0["solves"] + 2
+    assert s1["replays"] == s0["replays"] + 1, "the second build must hit live"
+    assert s1["hits"] == s0["hits"] + 1
+    np.testing.assert_allclose(b.x, a.x, rtol=1e-12)
+
+
+@requires("ipopt")
+def test_a_parameter_sweep_replays_once(daemon, monkeypatch):
+    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    core = exa.Core()
+    x = core.add_var(4, start=0.0)
+    p = core.add_par([0.0] * 4)
+    core.add_obj(lambda i: (x[i] - p[i]) ** 2, over=range(4))
+    model = exa.Model(core)
+    s0 = _stat(daemon)
+    for k in range(6):
+        target = [float(k + j) for j in range(4)]
+        model.set_parameters(p, target)
+        sol = model.solve(print_level=0, sb="yes")
+        np.testing.assert_allclose(sol[x], target, atol=1e-6)
+    s1 = _stat(daemon)
+    assert s1["solves"] == s0["solves"] + 6
+    assert s1["replays"] == s0["replays"] + 1, "a sweep is one replay, then hits"
+    assert s1["hits"] == s0["hits"] + 5
+
+
+@requires("ipopt")
+def test_an_instance_hit_takes_the_records_own_parameter_values(daemon, monkeypatch):
+    """Parameter values live outside both digests (the cache invariant), so
+    two records differing ONLY in add_par values share one instance — and a
+    hit that trusted the instance's last values would give the second run
+    the first run's answer."""
+    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+
+    def build(vals):
+        core = exa.Core()
+        x = core.add_var(2, start=0.0)
+        p = core.add_par(vals)
+        core.add_obj(lambda i: (x[i] - p[i]) ** 2, over=range(2))
+        return exa.Model(core), x
+
+    m1, x1 = build([1.0, 1.0])
+    s0 = _stat(daemon)
+    a = m1.solve(print_level=0, sb="yes")
+    m2, x2 = build([9.0, 9.0])
+    b = m2.solve(print_level=0, sb="yes")
+    s1 = _stat(daemon)
+    assert s1["replays"] == s0["replays"] + 1 and s1["hits"] == s0["hits"] + 1, \
+        "these two records must share one instance"
+    np.testing.assert_allclose(a[x1], [1.0, 1.0], atol=1e-6)
+    np.testing.assert_allclose(b[x2], [9.0, 9.0], atol=1e-6)
+
+
+@requires("ipopt")
+def test_eviction_rebuilds_and_stays_correct(tmp_path, monkeypatch):
+    path = str(tmp_path / "tiny.sock")
+    proc = _spawn(path, "--max-instances", "1")
+    try:
+        monkeypatch.setenv("EXAMODELS_DAEMON", path)
+        core_a, _ = _rosenbrock(7)
+        core_b, _ = _rosenbrock(8)
+        m_a, m_b = exa.Model(core_a), exa.Model(core_b)
+        a1 = m_a.solve(print_level=0, sb="yes")
+        m_b.solve(print_level=0, sb="yes")      # evicts A
+        a2 = m_a.solve(print_level=0, sb="yes")  # rebuilds A
+        s = _stat(path)
+        assert s["instances"] == 1
+        assert s["evictions"] == 2
+        assert s["replays"] == 3, "A, B, then A again after eviction"
+        assert a2.objective == pytest.approx(a1.objective, rel=1e-9)
+    finally:
+        subprocess.run([sys.executable, "-m", "examodels.daemon", "stop",
+                        "--socket", path], timeout=30)
+        proc.wait(10)

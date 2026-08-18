@@ -104,11 +104,12 @@ def try_daemon(core, args):
     if not dispatching():
         return None
     from ._cache import _layout
-    fp, _dd = core.fingerprint()
+    fp, dd = core.fingerprint()
     self = object.__new__(DaemonModel)
     self.__dict__["_record"] = core
     self.__dict__["_args"] = tuple(args)
     self.__dict__["_overrides"] = {}
+    self.__dict__["_key"] = (fp, dd)
     self.__dict__["_label"] = fp[:12]
     var, con, _par, nvar, ncon = _layout(core)
     self.__dict__["_var"], self.__dict__["_con"] = var, con
@@ -175,7 +176,8 @@ class DaemonModel(Model):
         try:
             _wire.send(sock, {
                 "op": "SOLVE", "label": self._label, "record": self._record,
-                "args": self._args, "params": self._overrides,
+                "key": self._key, "args": self._args,
+                "params": self._overrides,
                 "solver": solver, "options": options})
             reply = _wire.recv(sock)
         except (OSError, ConnectionError):

@@ -36,12 +36,18 @@ class _State:
         self.errors = 0
         self.queued = 0
         self.current = None
+        self.replays = 0        # instance built by replaying a record
+        self.hits = 0           # instance served live, replay skipped
+        self.instances = 0
+        self.evictions = 0
 
     def snapshot(self):
         with self._lock:
             return {"pid": os.getpid(), "uptime": time.time() - self.started,
                     "solves": self.solves, "errors": self.errors,
                     "queued": self.queued, "current": self.current,
+                    "replays": self.replays, "hits": self.hits,
+                    "instances": self.instances, "evictions": self.evictions,
                     "identity": _wire.identity()}
 
     @contextlib.contextmanager
@@ -56,34 +62,79 @@ class _State:
                 self.current = None
 
 
-def _solve(payload):
-    """Replay the record, apply parameter overrides, solve, flatten to host.
+def _instance(payload, instances, cap, state):
+    """The live model for this request — served from the instance table when
+    the (fingerprint, data digest) pair matches, replayed otherwise.
 
-    Runs on the one Julia-owning thread. Every exception is the caller's
-    answer, never the daemon's problem: the reply carries it back and the
-    daemon stays up.
+    Parameter VALUES live outside both digests (the cache invariant this
+    reuses), so a hit must not trust the values the instance last solved
+    with: the incoming record's own values are pushed first, then the
+    request's overrides.  A fresh replay bakes the record's values already.
     """
-    from . import _bridge as _b
     from .model import Model
 
     record = payload["record"]
     args = payload.get("args", ())
-    if getattr(record, "cache", None):
-        # A cache-carrying record missed its library client-side; the replay
-        # here is materialize, so the entry is compiled and stored as a side
-        # effect and the client's NEXT run hits julia-free, daemon or not.
-        from ._cache import materialize
-        eager = materialize(record, args)
+    key = payload.get("key")
+    hit = key is not None and key in instances
+    if hit:
+        instances.move_to_end(key)
+        model, pars = instances[key]
+        with state._lock:
+            state.hits += 1
+        for r in record._records:
+            if r["kind"] == "par":
+                model.set_parameters(pars[("par", r["ordinal"])], r["values"])
     else:
-        eager = record.replay()
-    model = Model(eager, *args)
-    overrides = payload.get("params") or {}
-    if overrides:
+        if getattr(record, "cache", None):
+            # A cache-carrying record missed its library client-side; the
+            # replay here is materialize, so the entry is compiled and stored
+            # as a side effect and the client's NEXT run hits julia-free,
+            # daemon or not.
+            from ._cache import materialize
+            eager = materialize(record, args)
+        else:
+            eager = record.replay()
+        model = Model(eager, *args)
         # Replay grafts the eager handles onto the record's own issued
-        # handles, so the client's block keys address this model directly.
-        by_key = {h._key: h for h in record._issued}
-        for key, values in overrides.items():
-            model.set_parameters(by_key[key], values)
+        # handles, so block keys address this model directly.
+        pars = {h._key: h for h in record._issued if h._key[0] == "par"}
+        with state._lock:
+            state.replays += 1
+        if key is not None:
+            instances[key] = (model, pars)
+            evicted = 0
+            while len(instances) > cap:
+                instances.popitem(last=False)
+                evicted += 1
+            if evicted:
+                with state._lock:
+                    state.evictions += evicted
+                _reclaim()
+        with state._lock:
+            state.instances = len(instances)
+    for pkey, values in (payload.get("params") or {}).items():
+        model.set_parameters(pars[pkey], values)
+    return model
+
+
+def _reclaim():
+    """Best-effort device-memory release after an eviction; refined in the
+    memory/lifetime phase.  Only touches CUDA when it is already loaded."""
+    with contextlib.suppress(Exception):
+        from . import _bridge as _b
+        _b.seval("GC.gc()")
+        if _b.seval("isdefined(Main, :CUDA)"):
+            _b.seval("Main.CUDA.reclaim()")
+
+
+def _solve(payload, instances, cap, state):
+    """Serve one request on the Julia-owning thread. Every exception is the
+    caller's answer, never the daemon's problem: the reply carries it back
+    and the daemon stays up."""
+    from . import _bridge as _b
+
+    model = _instance(payload, instances, cap, state)
     solver = payload.get("solver")
     options = payload.get("options") or {}
     sol = model.solve(solver=solver, **options)
@@ -105,8 +156,11 @@ def _solve(payload):
             "zL": host("multipliers_L"), "zU": host("multipliers_U")}
 
 
-def _work(jobs, state, stop):
-    """The main-thread loop: everything that touches Julia happens here."""
+def _work(jobs, state, stop, cap):
+    """The main-thread loop: everything that touches Julia happens here.
+    The instance table lives here too — main-thread-confined, like Julia."""
+    import collections
+    instances = collections.OrderedDict()
     while not stop.is_set():
         try:
             payload, reply = jobs.get(timeout=0.5)
@@ -114,7 +168,7 @@ def _work(jobs, state, stop):
             continue
         with state.job(payload.get("label") or "solve"):
             try:
-                result = _solve(payload)
+                result = _solve(payload, instances, cap, state)
                 with state._lock:
                     state.solves += 1
             except Exception as e:                           # noqa: BLE001
@@ -157,7 +211,7 @@ def _client(conn, jobs, state, stop):
         conn.close()
 
 
-def serve(path=None):
+def serve(path=None, max_instances=32):
     path = path or _wire.default_socket_path()
     # The daemon must never dispatch to a daemon: replay constructs Core()s,
     # and dispatch here would mean connecting to ourselves.
@@ -187,7 +241,7 @@ def serve(path=None):
                      daemon=True).start()
     print(f"examodels: warm session on {path} (C-c to close)", flush=True)
     try:
-        _work(jobs, state, stop)
+        _work(jobs, state, stop, max_instances)
     except KeyboardInterrupt:
         print("\nexamodels: closing")
     finally:
@@ -241,9 +295,13 @@ def main(argv=None):
     parser.add_argument("command", nargs="?", choices=["serve", "status", "stop"],
                         default="serve")
     parser.add_argument("--socket", help="listen/connect here instead of the default")
+    parser.add_argument("--max-instances", type=int, default=32,
+                        help="live models kept before the least recent is "
+                             "dropped (a count for now; a device-byte budget "
+                             "comes with the memory phase)")
     ns = parser.parse_args(argv)
     if ns.command == "serve":
-        return serve(ns.socket)
+        return serve(ns.socket, ns.max_instances)
     return _ask(ns.socket, "STATUS" if ns.command == "status" else "SHUTDOWN")
 
 
