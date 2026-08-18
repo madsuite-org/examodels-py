@@ -83,7 +83,22 @@ requirements, are in the [install guide](https://madsuite.org/examodels-py/insta
 
 ## Citation
 
-If you use this package in your research, please cite:
+If you use this package in your research, please cite the ExaModels.jl paper:
+
+```bibtex
+@misc{shin2026examodels,
+  title   = {{ExaModels.jl}: An Algebraic Modeling System for Nonlinear Programming on {GPUs}},
+  author  = {Shin, Sungho and Schanen, Michel and Pacaud, Fran\c{c}ois and Montoison, Alexis and Anitescu, Mihai},
+  year    = {2026},
+  eprint  = {2608.16265},
+  archivePrefix = {arXiv},
+  primaryClass  = {math.OC},
+  doi     = {10.48550/arXiv.2608.16265}
+}
+```
+
+The SIMD abstraction, and the condensed-space interior-point method it is paired with, are
+described in:
 
 ```bibtex
 @article{shin2024accelerating,
