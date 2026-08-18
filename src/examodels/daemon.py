@@ -278,7 +278,10 @@ def _ask(path, op):
         up = int(reply["uptime"])
         print(f"pid {reply['pid']}, up {up // 3600}h{(up % 3600) // 60:02d}m, "
               f"{reply['solves']} solves ({reply['errors']} errors), "
-              f"{reply['queued']} queued"
+              f"{reply['queued']} queued, "
+              f"{reply['instances']} live instances "
+              f"({reply['replays']} replays, {reply['hits']} hits, "
+              f"{reply['evictions']} evictions)"
               + (f", solving: {reply['current']}" if reply["current"] else ""))
     elif op == "SHUTDOWN":
         print("examodels: daemon stopped")
