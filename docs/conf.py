@@ -22,7 +22,15 @@ master_doc = "index"
 # Pages serves `dirhtml` output, so a page is `/install/` rather than
 # `/install.html`; the canonical URL has to be written the same way, and
 # both CI and the deploy build with `-b dirhtml` so they cannot diverge.
-html_baseurl = "https://madsuite.org/examodels-py/"
+# A Read the Docs build claims its own URL as canonical instead — two hosts
+# each declaring the other's address canonical is how search engines end up
+# indexing neither.
+import os
+
+if os.environ.get("READTHEDOCS") == "True":
+    html_baseurl = "https://examodels.readthedocs.io/"
+else:
+    html_baseurl = "https://madsuite.org/examodels-py/"
 
 html_theme = "furo"
 html_title = "examodels"
