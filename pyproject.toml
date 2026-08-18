@@ -15,7 +15,7 @@ dependencies = ["juliacall>=0.9.20", "numpy>=1.23"]
 test = ["pytest>=7", "pytest-cov>=4", "tomli>=2; python_version < '3.11'"]
 lint = ["ruff==0.16.2"]
 # Read the Docs installs `.[docs]`; without this the build cannot start.
-docs = ["sphinx>=7", "myst-parser>=2", "furo"]
+docs = ["sphinx>=7", "myst-parser>=2", "sphinx-rtd-theme>=3"]
 # Only for sharing device memory with CuPy; imported lazily, never on the CPU path.
 cuda = ["cupy-cuda12x>=13"]
 # The cache-hit half of Core(cache=...): loading a compiled entry (cnlpmodels)

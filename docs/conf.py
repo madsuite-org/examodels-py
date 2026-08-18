@@ -32,7 +32,7 @@ if os.environ.get("READTHEDOCS") == "True":
 else:
     html_baseurl = "https://madsuite.org/examodels-py/"
 
-html_theme = "furo"
+html_theme = "sphinx_rtd_theme"
 html_title = "examodels"
 
 autodoc_default_options = {"members": True, "undoc-members": False}
