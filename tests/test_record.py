@@ -231,3 +231,15 @@ def test_misspelled_math_function_fails_at_replay():
     core.add_obj(lambda i: exa.sine(x[i]), over=range(3))   # recorded happily
     with pytest.raises((TypeError, AttributeError), match="sine"):
         exa.Model(core)
+
+
+def test_the_recorder_itself_is_backend_neutral():
+    """The CPU-only refusal belongs to cache= (Core.__new__); the warm
+    session records device models by constructing the recorder directly,
+    which must accept any backend and fingerprint without Julia."""
+    from examodels._record import RecordingCore
+    rec = RecordingCore(backend="cuda", cache=None)
+    x = rec.add_var(3, start=0.0)
+    rec.add_obj(lambda i: (x[i] - 1.0) ** 2, over=range(3))
+    fp, dd = rec.fingerprint()
+    assert len(fp) == 64 and len(dd) == 64

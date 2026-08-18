@@ -9,6 +9,19 @@ import pytest
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _no_ambient_daemon():
+    """The suite tests the in-process paths: a warm session the developer
+    happens to be running must not turn every `Core()` into a dispatch.
+    Daemon tests opt back in with their own explicit socket path."""
+    if "EXAMODELS_DAEMON" in os.environ:
+        yield
+        return
+    os.environ["EXAMODELS_DAEMON"] = "0"
+    yield
+    del os.environ["EXAMODELS_DAEMON"]
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _isolated_model_cache(tmp_path_factory):
     """Tests must never read or write the user's real model cache: a
     `Core(cache=True)` built anywhere in the suite would otherwise compile

@@ -1,0 +1,160 @@
+"""The warm session end to end, on CPU: a real daemon subprocess serves
+recorded models, answers match the in-process path exactly, and every
+degradation falls back rather than breaking the run.
+
+The module-scoped daemon boots Julia once, on its first solve — later tests
+here are the warm case the feature exists for.
+"""
+import os
+import subprocess
+import sys
+import time
+
+import numpy as np
+import pytest
+from conftest import requires
+
+import examodels as exa
+from examodels import _wire
+from examodels._warm import DaemonModel, DaemonSolution, DispatchCore
+from examodels.core import Core as EagerCore
+
+
+def _spawn(path):
+    env = dict(os.environ)
+    env.pop("EXAMODELS_DAEMON", None)      # serve() sets its own guard
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "examodels.daemon", "serve", "--socket", path],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    for _ in range(100):
+        if os.path.exists(path):
+            return proc
+        if proc.poll() is not None:
+            raise RuntimeError(f"daemon died at start:\n{proc.stdout.read()}")
+        time.sleep(0.1)
+    proc.kill()
+    raise RuntimeError("daemon socket never appeared")
+
+
+@pytest.fixture(scope="module")
+def daemon(tmp_path_factory):
+    path = str(tmp_path_factory.mktemp("warm") / "daemon.sock")
+    proc = _spawn(path)
+    yield path
+    proc.terminate()
+    try:
+        proc.wait(5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def _solves(path):
+    sock = _wire.connect(path)
+    _wire.send(sock, {"op": "STATUS"})
+    reply = _wire.recv(sock)
+    sock.close()
+    return reply["solves"]
+
+
+def _rosenbrock(n=12):
+    core = exa.Core()
+    x = core.add_var(n, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(n)])
+    core.add_obj(lambda i: 100 * (x[i - 1] ** 2 - x[i]) ** 2 + (x[i - 1] - 1) ** 2,
+                 over=range(1, n))
+    return core, x
+
+
+@requires("ipopt")
+def test_the_daemon_serves_and_matches_the_in_process_answer(daemon, monkeypatch):
+    monkeypatch.setenv("EXAMODELS_DAEMON", "0")
+    core0, x0 = _rosenbrock()
+    ref = exa.Model(core0).solve(print_level=0, sb="yes")
+
+    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    core, x = _rosenbrock()
+    assert isinstance(core, DispatchCore), "a reachable daemon means recording"
+    model = exa.Model(core)
+    assert isinstance(model, DaemonModel)
+    before = _solves(daemon)
+    sol = model.solve(print_level=0, sb="yes")
+    assert _solves(daemon) == before + 1, "the daemon did not serve this solve"
+    assert isinstance(sol, DaemonSolution)
+    assert sol.status == ref.status and sol.success
+    assert sol.objective == pytest.approx(ref.objective, rel=1e-9)
+    np.testing.assert_allclose(sol[x], ref[x0], rtol=1e-8)
+    np.testing.assert_allclose(sol.x, ref.x, rtol=1e-8)
+
+
+@requires("ipopt")
+def test_parameter_overrides_ride_along(daemon, monkeypatch):
+    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    core = exa.Core()
+    x = core.add_var(3, start=0.0)
+    p = core.add_par([1.0, 2.0, 3.0])
+    core.add_obj(lambda i: (x[i] - p[i]) ** 2, over=range(3))
+    model = exa.Model(core)
+    model.set_parameters(p, [5.0, 6.0, 7.0])
+    before = _solves(daemon)
+    sol = model.solve(print_level=0, sb="yes")
+    assert _solves(daemon) == before + 1
+    np.testing.assert_allclose(sol[x], [5.0, 6.0, 7.0], atol=1e-6)
+
+
+@requires("ipopt")
+def test_a_dying_daemon_never_loses_the_run(tmp_path, monkeypatch):
+    path = str(tmp_path / "short-lived.sock")
+    proc = _spawn(path)
+    monkeypatch.setenv("EXAMODELS_DAEMON", path)
+    core, x = _rosenbrock()
+    model = exa.Model(core)
+    assert isinstance(model, DaemonModel)
+    subprocess.run([sys.executable, "-m", "examodels.daemon", "stop",
+                    "--socket", path], check=True, timeout=30)
+    proc.wait(10)
+    sol = model.solve(print_level=0, sb="yes")     # in-process fallback
+    assert sol.success
+    assert model._eager is not None, "the fallback model should now exist"
+    monkeypatch.setenv("EXAMODELS_DAEMON", "0")
+    ref_core, ref_x = _rosenbrock()
+    ref = exa.Model(ref_core).solve(print_level=0, sb="yes")
+    assert sol.objective == pytest.approx(ref.objective, rel=1e-8)
+    np.testing.assert_allclose(sol[x], ref[ref_x], rtol=1e-8)
+
+
+def test_an_oracle_converts_the_core_to_eager(daemon, monkeypatch):
+    from test_advanced import unit_circle_oracle
+    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    core = exa.Core()
+    assert isinstance(core, DispatchCore)
+    x = exa.add_var(core, 2, start=0.5)
+    exa.add_obj(core, lambda i: -x[0] - x[1], over=range(1))
+    exa.add_con(core, unit_circle_oracle())        # a record cannot carry this
+    assert type(core) is EagerCore, "the core should have become eager"
+    model = exa.Model(core)
+    assert not isinstance(model, DaemonModel)
+    assert model.ncon == 1, "construction continued seamlessly across the switch"
+
+
+def test_version_skew_disables_dispatch(daemon, monkeypatch):
+    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    real = _wire.identity()
+    monkeypatch.setattr(_wire, "identity",
+                        lambda: {**real, "proto": real["proto"] + 1})
+    core = exa.Core()
+    assert type(core) is EagerCore, "a refused handshake must mean eager"
+
+
+def test_the_status_cli_reports(daemon):
+    out = subprocess.run(
+        [sys.executable, "-m", "examodels.daemon", "status", "--socket", daemon],
+        capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0
+    assert "solves" in out.stdout
+
+
+def test_a_second_daemon_refuses_the_busy_socket(daemon):
+    out = subprocess.run(
+        [sys.executable, "-m", "examodels.daemon", "serve", "--socket", daemon],
+        capture_output=True, text=True, timeout=30)
+    assert out.returncode == 1
+    assert "already serving" in out.stderr

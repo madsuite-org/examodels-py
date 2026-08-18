@@ -138,7 +138,8 @@ __all__ = [
 
 
 _SUBMODULES = frozenset({"ops", "core", "node", "model", "solve", "testing",
-                         "advanced", "_bridge", "_record", "_cache"})
+                         "advanced", "_bridge", "_record", "_cache",
+                         "_wire", "_warm", "daemon", "compile", "recipe"})
 
 
 def __getattr__(name):
