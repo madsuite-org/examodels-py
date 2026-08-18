@@ -2,9 +2,12 @@
 
 *The Python interface to [ExaModels.jl](https://github.com/madsuite-org/ExaModels.jl) — an [algebraic modeling](https://en.wikipedia.org/wiki/Algebraic_modeling_language) and [automatic differentiation](https://en.wikipedia.org/wiki/Automatic_differentiation) tool specialized for [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) abstraction of [nonlinear programs](https://en.wikipedia.org/wiki/Nonlinear_programming), on CPU threads and GPUs.*
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/madsuite-org/examodels-py/blob/main/LICENSE)
+[![docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://madsuite.org/examodels-py/)
 [![test](https://github.com/madsuite-org/examodels-py/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/madsuite-org/examodels-py/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/madsuite-org/examodels-py/branch/main/graph/badge.svg)](https://codecov.io/gh/madsuite-org/examodels-py)
-[![docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://madsuite.org/examodels-py/)
+[![release](https://img.shields.io/github/v/release/madsuite-org/examodels-py)](https://github.com/madsuite-org/examodels-py/releases)
+[![arXiv](https://img.shields.io/badge/arXiv-2608.16265-b31b1b.svg)](https://arxiv.org/abs/2608.16265)
 
 > [!WARNING]
 > **Experimental — not yet stable.** The API may change without notice. Pin a
