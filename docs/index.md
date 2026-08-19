@@ -50,6 +50,7 @@ simd
 tutorial/index
 recipe
 cache
+daemon
 cupy
 api
 ```

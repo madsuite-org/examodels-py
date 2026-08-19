@@ -314,3 +314,71 @@ def test_a_shared_instance_survives_until_its_last_owner_leaves(daemon, monkeypa
     assert s1["destroyed"] == s0["destroyed"], \
         "the other client's exit must not kill an instance this one still leases"
     assert keeper.solve(print_level=0, sb="yes").success
+
+
+# ---- phase 4: interrupts + lifetime policy ----------------------------------
+
+@requires("ipopt")
+def test_a_client_killed_mid_solve_leaves_a_healthy_daemon(daemon, monkeypatch):
+    """The design's v1 interrupt policy: an abandoned request is finished by
+    the daemon and discarded; the dead client's lease is torn down; nobody
+    else notices."""
+    code = (
+        "import os\n"
+        f"os.environ['EXAMODELS_DAEMON'] = {daemon!r}\n"
+        "import examodels as exa\n"
+        "n = 50_000\n"
+        "core = exa.Core()\n"
+        "x = core.add_var(n, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(n)])\n"
+        "core.add_obj(lambda i: 100 * (x[i - 1] ** 2 - x[i]) ** 2"
+        " + (x[i - 1] - 1) ** 2, over=range(1, n))\n"
+        "m = exa.Model(core)\n"
+        "print('BUILT', flush=True)\n"
+        "m.solve(print_level=0, sb='yes', max_iter=300)\n"   # bounded orphan
+        "print('SOLVED', flush=True)\n"
+    )
+    s0 = _stat(daemon)
+    proc = subprocess.Popen([sys.executable, "-c", code],
+                            stdout=subprocess.PIPE, text=True)
+    line = proc.stdout.readline()
+    assert "BUILT" in line, "client never got its model built"
+    time.sleep(1.0)                  # let the solve get airborne
+    proc.kill()                      # no goodbye of any kind
+    proc.wait(10)
+    deadline = time.time() + 120     # the abandoned solve runs to completion
+    while time.time() < deadline:
+        s1 = _stat(daemon)           # <- the daemon answering IS the health check
+        if s1["current"] is None and s1["instances"] == s0["instances"]:
+            break
+        time.sleep(0.5)
+    assert s1["current"] is None, "the daemon is still stuck on the orphan solve"
+    assert s1["instances"] == s0["instances"], "the dead client's lease survived"
+    # and it still serves: a fresh solve straight through
+    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    core, x = _rosenbrock(10)
+    assert exa.Model(core).solve(print_level=0, sb="yes").success
+
+
+@requires("ipopt")
+def test_idle_exit_stops_a_daemon_nobody_uses(tmp_path):
+    path = str(tmp_path / "sleepy.sock")
+    proc = _spawn(path, "--idle-exit", "0.03")      # 1.8 s
+    code = (
+        "import os\n"
+        f"os.environ['EXAMODELS_DAEMON'] = {path!r}\n"
+        "import examodels as exa\n"
+        "core = exa.Core()\n"
+        "x = core.add_var(4, start=0.0)\n"
+        "core.add_obj(lambda i: (x[i] - 1.0) ** 2, over=range(4))\n"
+        "assert exa.Model(core).solve(print_level=0, sb='yes').success\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code],
+                         capture_output=True, text=True, timeout=300)
+    assert out.returncode == 0, out.stdout + out.stderr
+    try:
+        rc = proc.wait(30)           # client gone; idle clock runs out
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise AssertionError("idle daemon never exited") from None
+    assert rc == 0
+    assert not os.path.exists(path), "the socket must be cleaned up on exit"

@@ -42,6 +42,9 @@ class _State:
         self.evictions = 0
         self.destroyed = 0      # instances torn down when their clients left
         self.records_received = 0   # full records that crossed the wire
+        self.conns = 0          # open client connections (leases + probes)
+        self.last_activity = time.time()   # last BUILD/SOLVE/HANGUP job
+        self.mem = {}           # refreshed by the worker after each job
 
     def snapshot(self):
         with self._lock:
@@ -52,6 +55,7 @@ class _State:
                     "instances": self.instances, "evictions": self.evictions,
                     "destroyed": self.destroyed,
                     "records_received": self.records_received,
+                    "connections": self.conns, "mem": dict(self.mem),
                     "identity": _wire.identity()}
 
     @contextlib.contextmanager
@@ -153,6 +157,34 @@ def _release(conn, keys, instances, state):
         _reclaim()
 
 
+_UNLOCKED = {}
+
+
+def _gil_free_solve(model, solver, options):
+    """`model.solve(...)`, with the GIL released for the pure-Julia part.
+
+    A solve can run for minutes, and the worker holding the GIL that whole
+    time freezes every other thread — including the ones answering `status`,
+    which the design promises stays honest during long solves.  Releasing is
+    safe here and only here: an oracle model (Julia calling back into
+    Python) is unrecordable, so one can never reach the daemon."""
+    import time as _time
+
+    from . import _bridge as _b
+    from .model import Solution
+    from .solve import _prepared
+
+    entry, options, name = _prepared(model, solver, options)
+    fn = _UNLOCKED.get(name)
+    if fn is None:
+        fn = _b.seval(
+            "f -> ((m; kw...) -> PythonCall.GIL.@unlock f(m; kw...))")(entry)
+        _UNLOCKED[name] = fn
+    t0 = _time.perf_counter()
+    raw = _b.guard(fn, model._jl, **options)
+    return Solution(raw, elapsed=_time.perf_counter() - t0)
+
+
 def _reclaim():
     """Best-effort device-memory release after an eviction; refined in the
     memory/lifetime phase.  Only touches CUDA when it is already loaded."""
@@ -183,7 +215,7 @@ def _solve(payload, instances, cap, state, build_only=False):
         return {"ok": True, "leased": True}
     solver = payload.get("solver")
     options = payload.get("options") or {}
-    sol = model.solve(solver=solver, **options)
+    sol = _gil_free_solve(model, solver, options)
     raw = sol._raw
 
     def host(name):
@@ -203,18 +235,33 @@ def _solve(payload, instances, cap, state, build_only=False):
             "zL": host("multipliers_L"), "zU": host("multipliers_U")}
 
 
-def _work(jobs, state, stop, cap):
+def _work(jobs, state, stop, cap, idle_exit=None):
     """The main-thread loop: everything that touches Julia happens here.
-    The instance table lives here too — main-thread-confined, like Julia."""
+    The instance table lives here too — main-thread-confined, like Julia.
+
+    `idle_exit` (seconds) is the restart-on-idle policy from the design:
+    Julia never unloads compiled code, so a long-lived daemon only grows;
+    with no client connected and no work arriving for that long, exiting
+    is the cleanup. The next `examodels` starts fresh."""
     import collections
     instances = collections.OrderedDict()
     while not stop.is_set():
         try:
             kind, payload, reply = jobs.get(timeout=0.5)
         except queue.Empty:
+            with state._lock:
+                idle = (state.conns == 0
+                        and time.time() - state.last_activity > (idle_exit or 0))
+            if idle_exit is not None and idle:
+                print(f"examodels: idle for {int(idle_exit)}s with no "
+                      f"clients; exiting", flush=True)
+                stop.set()
             continue
+        with state._lock:
+            state.last_activity = time.time()
         if kind == "HANGUP":
             _release(payload["conn"], payload["keys"], instances, state)
+            _refresh_mem(state)
             continue
         with state.job(payload.get("label") or "solve"):
             try:
@@ -230,12 +277,34 @@ def _work(jobs, state, stop, cap):
                 result = {"ok": False, "error": {
                     "type": type(e).__name__, "message": str(e)}}
         reply.put(result)
+        _refresh_mem(state)
+
+
+def _refresh_mem(state):
+    """Host RSS and device memory, refreshed on the worker thread — the only
+    thread allowed to ask Julia. Read by `status` from wherever."""
+    from . import _bridge as _b
+    rss_mb = None
+    with contextlib.suppress(OSError, IndexError, ValueError):
+        with open("/proc/self/statm") as f:
+            rss_mb = int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1e6
+    dev = None
+    if _b.loaded():
+        with contextlib.suppress(Exception):
+            if _b.seval("isdefined(Main, :CUDA)"):
+                free = float(_b.seval("Float64(Main.CUDA.free_memory())"))
+                total = float(_b.seval("Float64(Main.CUDA.total_memory())"))
+                dev = {"used_mb": (total - free) / 1e6, "total_mb": total / 1e6}
+    with state._lock:
+        state.mem = {"rss_mb": rss_mb, "device": dev}
 
 
 def _client(conn, jobs, state, stop):
     me = _wire.identity()
     conn_id = id(conn)
     owned = []                      # keys this connection holds leases on
+    with state._lock:
+        state.conns += 1
     try:
         while True:
             req = _wire.recv(conn)
@@ -268,13 +337,16 @@ def _client(conn, jobs, state, stop):
         return                      # client went away; teardown still runs
     finally:
         conn.close()
+        with state._lock:
+            state.conns -= 1
+            state.last_activity = time.time()
         if owned:
             # The client is gone: its models must not pile up in here.  The
             # release runs on the worker thread, where the table lives.
             jobs.put(("HANGUP", {"conn": conn_id, "keys": owned}, None))
 
 
-def serve(path=None, max_instances=32):
+def serve(path=None, max_instances=32, idle_exit=None):
     path = path or _wire.default_socket_path()
     # The daemon must never dispatch to a daemon: replay constructs Core()s,
     # and dispatch here would mean connecting to ourselves.
@@ -304,7 +376,7 @@ def serve(path=None, max_instances=32):
                      daemon=True).start()
     print(f"examodels: warm session on {path} (C-c to close)", flush=True)
     try:
-        _work(jobs, state, stop, max_instances)
+        _work(jobs, state, stop, max_instances, idle_exit)
     except KeyboardInterrupt:
         print("\nexamodels: closing")
     finally:
@@ -339,13 +411,22 @@ def _ask(path, op):
         sock.close()
     if op == "STATUS" and reply and reply.get("ok"):
         up = int(reply["uptime"])
-        print(f"pid {reply['pid']}, up {up // 3600}h{(up % 3600) // 60:02d}m, "
-              f"{reply['solves']} solves ({reply['errors']} errors), "
-              f"{reply['queued']} queued, "
-              f"{reply['instances']} live instances "
-              f"({reply['replays']} replays, {reply['hits']} hits, "
-              f"{reply['evictions']} evictions)"
-              + (f", solving: {reply['current']}" if reply["current"] else ""))
+        mem = reply.get("mem") or {}
+        dev = mem.get("device")
+        line = (f"pid {reply['pid']}, up {up // 3600}h{(up % 3600) // 60:02d}m, "
+                f"{reply['solves']} solves ({reply['errors']} errors), "
+                f"{reply['queued']} queued, {reply['connections']} clients, "
+                f"{reply['instances']} live instances "
+                f"({reply['replays']} replays, {reply['hits']} hits, "
+                f"{reply['evictions']} evictions, {reply['destroyed']} destroyed)")
+        if mem.get("rss_mb"):
+            line += f", rss {mem['rss_mb'] / 1000:.1f} GB"
+        if dev:
+            line += (f", device {dev['used_mb'] / 1000:.1f}"
+                     f"/{dev['total_mb'] / 1000:.1f} GB")
+        if reply["current"]:
+            line += f", solving: {reply['current']}"
+        print(line)
     elif op == "SHUTDOWN":
         print("examodels: daemon stopped")
     return 0
@@ -363,11 +444,16 @@ def main(argv=None):
     parser.add_argument("--socket", help="listen/connect here instead of the default")
     parser.add_argument("--max-instances", type=int, default=32,
                         help="live models kept before the least recent is "
-                             "dropped (a count for now; a device-byte budget "
-                             "comes with the memory phase)")
+                             "dropped; every drop rebuilds transparently on "
+                             "next use")
+    parser.add_argument("--idle-exit", type=float, metavar="MINUTES",
+                        help="exit after this long with no clients and no "
+                             "work — Julia never unloads compiled code, so "
+                             "an occasional fresh start is the only reset")
     ns = parser.parse_args(argv)
     if ns.command == "serve":
-        return serve(ns.socket, ns.max_instances)
+        return serve(ns.socket, ns.max_instances,
+                     None if ns.idle_exit is None else ns.idle_exit * 60)
     return _ask(ns.socket, "STATUS" if ns.command == "status" else "SHUTDOWN")
 
 
