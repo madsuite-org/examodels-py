@@ -6,7 +6,7 @@ from collections import namedtuple
 
 import pytest
 
-import examodels as exa
+import madsuite as exa
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "examples"))
 

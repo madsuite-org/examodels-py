@@ -1,4 +1,4 @@
-# examodels
+# madsuite
 
 :::{admonition} Experimental
 :class: warning
@@ -17,7 +17,7 @@ algebraic modelling and automatic differentiation for nonlinear programs, on CPU
 GPUs.
 
 ```python
-import examodels as exa
+import madsuite as exa
 
 N = 10
 core = exa.Core()

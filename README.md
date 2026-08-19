@@ -1,12 +1,12 @@
-# examodels
+# madsuite
 
 *The Python interface to [ExaModels.jl](https://github.com/madsuite-org/ExaModels.jl) — an [algebraic modeling](https://en.wikipedia.org/wiki/Algebraic_modeling_language) and [automatic differentiation](https://en.wikipedia.org/wiki/Automatic_differentiation) tool specialized for [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) abstraction of [nonlinear programs](https://en.wikipedia.org/wiki/Nonlinear_programming), on CPU threads and GPUs.*
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/madsuite-org/examodels-py/blob/main/LICENSE)
-[![docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://madsuite.org/examodels-py/)
-[![test](https://github.com/madsuite-org/examodels-py/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/madsuite-org/examodels-py/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/madsuite-org/examodels-py/branch/main/graph/badge.svg)](https://codecov.io/gh/madsuite-org/examodels-py)
-[![release](https://img.shields.io/github/v/release/madsuite-org/examodels-py)](https://github.com/madsuite-org/examodels-py/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/madsuite-org/madsuite-py/blob/main/LICENSE)
+[![docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://madsuite.org/madsuite-py/)
+[![test](https://github.com/madsuite-org/madsuite-py/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/madsuite-org/madsuite-py/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/madsuite-org/madsuite-py/branch/main/graph/badge.svg)](https://codecov.io/gh/madsuite-org/madsuite-py)
+[![release](https://img.shields.io/github/v/release/madsuite-org/madsuite-py)](https://github.com/madsuite-org/madsuite-py/releases)
 [![arXiv](https://img.shields.io/badge/arXiv-2608.16265-b31b1b.svg)](https://arxiv.org/abs/2608.16265)
 
 > [!WARNING]
@@ -20,10 +20,10 @@ constraints, and sparse first and second derivatives — through
 pattern-specialized kernels, on CPU threads or GPUs. A model is a small number
 of algebraic patterns, each paired with an iterator over the data points where
 the pattern applies — written as a function of the index plus its index set,
-the one spelling that serves every model, fixed or [recipe](https://madsuite.org/examodels-py/recipe/):
+the one spelling that serves every model, fixed or [recipe](https://madsuite.org/madsuite-py/recipe/):
 
 ```python
-import examodels as exa
+import madsuite as exa
 
 N = 10
 core = exa.Core()
@@ -70,32 +70,32 @@ this package carries it into Python:
   no compilation overhead at all — about half a second end to end.
 
 For GPU models — which cannot be cached to a library — the same per-run
-price is removed by the **warm session**: run `examodels` in a terminal and
+price is removed by the **warm session**: run `madsuite` in a terminal and
 every script on the machine dispatches to it, unchanged, paying seconds
 instead of minutes. See the
-[manual page](https://madsuite.org/examodels-py/daemon/).
+[manual page](https://madsuite.org/madsuite-py/daemon/).
 
-The [manual](https://madsuite.org/examodels-py/) covers all of it: parameters,
+The [manual](https://madsuite.org/madsuite-py/) covers all of it: parameters,
 multi-dimensional blocks, indexing over data tables, GPUs, recipes, the
 compiler, the warm session, and what the first call costs.
 
 ## Installation
 
 ```
-pip install "examodels @ git+https://github.com/madsuite-org/examodels-py"
+pip install "madsuite @ git+https://github.com/madsuite-org/madsuite-py"
 ```
 
-Backends install per-environment, once — `examodels.install_solver("ipopt")`,
-`examodels.install_compiler()` — and Julia itself arrives automatically the
+Backends install per-environment, once — `madsuite.install_solver("ipopt")`,
+`madsuite.install_compiler()` — and Julia itself arrives automatically the
 first time it is needed. Details, including the GPU and compiler
-requirements, are in the [install guide](https://madsuite.org/examodels-py/install/).
+requirements, are in the [install guide](https://madsuite.org/madsuite-py/install/).
 
 ## Citation
 
 If you use this package in your research, please cite:
 
 ```bibtex
-@misc{shin2026examodels,
+@misc{shin2026madsuite,
   title   = {{ExaModels.jl}: An Algebraic Modeling System for Nonlinear Programming on {GPUs}},
   author  = {Shin, Sungho and Schanen, Michel and Pacaud, Fran\c{c}ois and Montoison, Alexis and Anitescu, Mihai},
   year    = {2026},
@@ -106,9 +106,9 @@ If you use this package in your research, please cite:
 }
 ```
 
-## Supporting examodels
+## Supporting madsuite
 
 - Report issues and feature requests via the
-  [GitHub issue tracker](https://github.com/madsuite-org/examodels-py/issues).
+  [GitHub issue tracker](https://github.com/madsuite-org/madsuite-py/issues).
 - Questions are welcome at the
   [ExaModels.jl discussion forum](https://github.com/madsuite-org/ExaModels.jl/discussions).

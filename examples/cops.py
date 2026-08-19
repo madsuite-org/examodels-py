@@ -11,8 +11,8 @@ from collections import namedtuple
 
 import numpy as np
 
-import examodels as exa
-from examodels import add_con, add_obj, add_var
+import madsuite as exa
+from madsuite import add_con, add_obj, add_var
 
 Pair = namedtuple("Pair", "i j")
 

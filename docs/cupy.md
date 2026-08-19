@@ -33,4 +33,4 @@ the other using the device. There is one caveat that is a library-path problem r
 an interop one: CuPy's pip-installed CUDA libraries can shadow the backend's own, which the
 backend warns about. Keeping `site-packages/nvidia/*/lib` off `LD_LIBRARY_PATH` avoids it.
 
-Install with `pip install examodels[cuda]`.
+Install with `pip install madsuite[cuda]`.

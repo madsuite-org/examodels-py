@@ -1,4 +1,4 @@
-"""The warm session: `examodels` runs it; scripts dispatch to it.
+"""The warm session: `madsuite` runs it; scripts dispatch to it.
 
 One foreground process owning one Julia runtime; C-c stops it. Clients send
 recorded models (never scripts); the daemon replays each through the ordinary
@@ -27,7 +27,7 @@ __all__ = ["main", "serve"]
 
 
 class _State:
-    """What `examodels status` reports. Lock-protected counters, no Julia."""
+    """What `madsuite status` reports. Lock-protected counters, no Julia."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -242,7 +242,7 @@ def _work(jobs, state, stop, cap, idle_exit=None):
     `idle_exit` (seconds) is the restart-on-idle policy from the design:
     Julia never unloads compiled code, so a long-lived daemon only grows;
     with no client connected and no work arriving for that long, exiting
-    is the cleanup. The next `examodels` starts fresh."""
+    is the cleanup. The next `madsuite` starts fresh."""
     import collections
     instances = collections.OrderedDict()
     while not stop.is_set():
@@ -253,7 +253,7 @@ def _work(jobs, state, stop, cap, idle_exit=None):
                 idle = (state.conns == 0
                         and time.time() - state.last_activity > (idle_exit or 0))
             if idle_exit is not None and idle:
-                print(f"examodels: idle for {int(idle_exit)}s with no "
+                print(f"madsuite: idle for {int(idle_exit)}s with no "
                       f"clients; exiting", flush=True)
                 stop.set()
             continue
@@ -350,14 +350,14 @@ def serve(path=None, max_instances=32, idle_exit=None):
     path = path or _wire.default_socket_path()
     # The daemon must never dispatch to a daemon: replay constructs Core()s,
     # and dispatch here would mean connecting to ourselves.
-    os.environ["EXAMODELS_DAEMON"] = "0"
+    os.environ["MADSUITE_DAEMON"] = "0"
     # A raw connect, not a handshake: a live daemon of any version keeps its
     # socket; only a socket nothing is listening on is stale.
     probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         probe.connect(path)
         probe.close()
-        print(f"examodels: a daemon is already serving {path}", file=sys.stderr)
+        print(f"madsuite: a daemon is already serving {path}", file=sys.stderr)
         return 1
     except OSError:
         probe.close()
@@ -374,11 +374,11 @@ def serve(path=None, max_instances=32, idle_exit=None):
     stop = threading.Event()
     threading.Thread(target=_accept, args=(listener, jobs, state, stop),
                      daemon=True).start()
-    print(f"examodels: warm session on {path} (C-c to close)", flush=True)
+    print(f"madsuite: warm session on {path} (C-c to close)", flush=True)
     try:
         _work(jobs, state, stop, max_instances, idle_exit)
     except KeyboardInterrupt:
-        print("\nexamodels: closing")
+        print("\nmadsuite: closing")
     finally:
         listener.close()
         with contextlib.suppress(OSError):
@@ -402,7 +402,7 @@ def _accept(listener, jobs, state, stop):
 def _ask(path, op):
     sock = _wire.connect(path or _wire.default_socket_path(), timeout=2.0)
     if sock is None:
-        print("examodels: no daemon running", file=sys.stderr)
+        print("madsuite: no daemon running", file=sys.stderr)
         return 1
     try:
         _wire.send(sock, {"op": op})
@@ -428,15 +428,15 @@ def _ask(path, op):
             line += f", solving: {reply['current']}"
         print(line)
     elif op == "SHUTDOWN":
-        print("examodels: daemon stopped")
+        print("madsuite: daemon stopped")
     return 0
 
 
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(
-        prog="examodels",
-        description="Warm session for examodels: keeps Julia, the solver "
+        prog="madsuite",
+        description="Warm session for madsuite: keeps Julia, the solver "
                     "stack and compiled kernels alive between runs. Scripts "
                     "dispatch to it automatically while it runs.")
     parser.add_argument("command", nargs="?", choices=["serve", "status", "stop"],

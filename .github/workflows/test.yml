@@ -34,17 +34,17 @@ jobs:
           path: |
             ~/.julia
             .venv/julia_env
-          key: julia-${{ runner.os }}-${{ hashFiles('src/examodels/juliapkg.json') }}
+          key: julia-${{ runner.os }}-${{ hashFiles('src/madsuite/juliapkg.json') }}
 
       - run: pip install -e ".[test]"
 
       # Solvers are optional dependencies, installed on request. Without one the
       # suite would skip almost everything, so CI asks for it explicitly.
       - name: install a solver
-        run: python -c "import examodels; examodels.install_solver('ipopt')"
+        run: python -c "import madsuite; madsuite.install_solver('ipopt')"
 
       - name: which backend is under test
-        run: python -c "from examodels import _bridge as b; print(b.version, b.seval('pathof(ExaModels)'))"
+        run: python -c "from madsuite import _bridge as b; print(b.version, b.seval('pathof(ExaModels)'))"
 
       # The backend has been killing the process outright -- SIGSEGV on Linux,
       # SIGTRAP or SIGABRT on macOS, at whichever call happened to be running.
@@ -68,7 +68,7 @@ jobs:
             sudo sysctl -w kernel.core_pattern=/tmp/core.%e.%p > /dev/null || true
             # Coverage is measured where the suite is stable; the macOS jobs
             # exist to catch platform breakage, not to gather lines.
-            cov="--cov=examodels --cov-report=xml"
+            cov="--cov=madsuite --cov-report=xml"
           fi
           ulimit -c unlimited || true
           # The backend crash is a signal, never a test outcome, so only the
@@ -152,9 +152,9 @@ jobs:
           path: |
             ~/.julia
             .venv/julia_env
-          key: julia-examples-${{ hashFiles('src/examodels/juliapkg.json') }}
+          key: julia-examples-${{ hashFiles('src/madsuite/juliapkg.json') }}
       - run: pip install -e ".[test]"
-      - run: python -c "import examodels; examodels.install_solver('ipopt')"
+      - run: python -c "import madsuite; madsuite.install_solver('ipopt')"
 
       # one small benchmark case, so the OPF example is actually exercised
       - name: fetch a PGLib case
@@ -183,9 +183,9 @@ jobs:
           path: |
             ~/.julia
             .venv/julia_env
-          key: julia-interface-${{ hashFiles('src/examodels/juliapkg.json') }}
+          key: julia-interface-${{ hashFiles('src/madsuite/juliapkg.json') }}
       - run: pip install -e ".[test]"
-      - run: python -c "import examodels; examodels.install_solver('ipopt')"
+      - run: python -c "import madsuite; madsuite.install_solver('ipopt')"
       - run: pytest tests/test_parity.py tests/test_dependencies.py -q -s
 
   docs:

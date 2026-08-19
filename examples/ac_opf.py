@@ -14,8 +14,8 @@ import time
 import matpower
 import numpy as np
 
-import examodels as exa
-from examodels import add_con, add_obj, add_var
+import madsuite as exa
+from madsuite import add_con, add_obj, add_var
 
 DEFAULT_CASE = os.environ.get(
     "PGLIB_CASE",

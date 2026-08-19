@@ -6,9 +6,9 @@ wrappers hand back -- is pinned with the backend recorded rather than run.
 """
 import pytest
 
-import examodels as exa
-from examodels import _bridge as _b
-from examodels import advanced
+import madsuite as exa
+from madsuite import _bridge as _b
+from madsuite import advanced
 
 
 def test_marker_and_oracle_reprs():

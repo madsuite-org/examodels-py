@@ -16,7 +16,7 @@ This package preserves that structure rather than flattening it. An expression i
 once, as a function of an index:
 
 ```python
-import examodels as exa
+import madsuite as exa
 
 N = 10
 core = exa.Core()
@@ -36,7 +36,7 @@ Two consequences follow directly, and both are visible in the API:
   the data — `start`, `lvar`, `ucon`, or the index set itself — all of which are evaluated
   per index in the ordinary way.
 - **Only registered operators may appear.** Use `exa.sin`, not `math.sin`. The available
-  functions are generated from the backend's own registry, so `dir(examodels)` is the
+  functions are generated from the backend's own registry, so `dir(madsuite)` is the
   authoritative list.
 
 Each distinct expression *shape* compiles its own derivative kernel the first time it is

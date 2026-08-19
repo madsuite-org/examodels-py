@@ -10,8 +10,8 @@ import sys
 import numpy as np
 import pytest
 
-import examodels as exa
-from examodels import _bridge as _b
+import madsuite as exa
+from madsuite import _bridge as _b
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "examples"))
 

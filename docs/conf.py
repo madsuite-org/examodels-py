@@ -1,5 +1,5 @@
 """Sphinx configuration. The page structure mirrors the ExaModels.jl manual."""
-project = "examodels"
+project = "madsuite"
 copyright = "Sungho Shin"
 author = "Sungho Shin"
 
@@ -28,12 +28,12 @@ master_doc = "index"
 import os
 
 if os.environ.get("READTHEDOCS") == "True":
-    html_baseurl = "https://examodels.readthedocs.io/"
+    html_baseurl = "https://madsuite.readthedocs.io/"
 else:
-    html_baseurl = "https://madsuite.org/examodels-py/"
+    html_baseurl = "https://madsuite.org/madsuite-py/"
 
 html_theme = "sphinx_rtd_theme"
-html_title = "examodels"
+html_title = "madsuite"
 
 autodoc_default_options = {"members": True, "undoc-members": False}
 autodoc_mock_imports = ["juliacall", "juliapkg", "cupy"]

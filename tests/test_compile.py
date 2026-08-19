@@ -13,10 +13,10 @@ import types
 
 import pytest
 
-import examodels as exa
-from examodels import _bridge as _b
-from examodels import compile as compile_mod
-from examodels.compile import (
+import madsuite as exa
+from madsuite import _bridge as _b
+from madsuite import compile as compile_mod
+from madsuite.compile import (
     COMPILER,
     CompiledLibrary,
     compile_library,
@@ -158,7 +158,7 @@ def test_a_julia_argfun_is_passed_through(backend, recipe_core):
 def test_placeholder_examples_are_unwrapped(backend, recipe_core):
     # An example given as a placeholder expression is data, and reaches the
     # backend as the node it stands for rather than as a Python wrapper.
-    from examodels.recipe import Arg
+    from madsuite.recipe import Arg
     core, n = exa.recipe()
     assert isinstance(n + 1, Arg)                # what the caller wrote
     compile_library("lib", recipe_core, n + 1)

@@ -19,7 +19,7 @@ from .model import Model
 
 __all__ = ["dispatching", "DispatchCore", "DaemonModel", "DaemonSolution"]
 
-_suspended = contextvars.ContextVar("examodels-no-dispatch", default=False)
+_suspended = contextvars.ContextVar("madsuite-no-dispatch", default=False)
 
 
 @contextlib.contextmanager

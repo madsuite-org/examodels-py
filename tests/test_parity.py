@@ -12,8 +12,8 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
-import examodels as exa
-from examodels import _bridge as _b
+import madsuite as exa
+from madsuite import _bridge as _b
 
 SUPPORTED = "supported"      # reachable from Python and exercised below
 SYNTAX = "syntax"            # a Julia macro; the Python spelling is different

@@ -4,7 +4,7 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
-import examodels as exa
+import madsuite as exa
 
 
 def test_shape_and_size():

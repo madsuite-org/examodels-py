@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-import examodels as exa
-from examodels.testing import reference_trace, same_structure
+import madsuite as exa
+from madsuite.testing import reference_trace, same_structure
 
 N = 10
 
@@ -50,7 +50,7 @@ def test_changing_a_parameter_changes_the_solution_without_rebuilding():
 
 
 def test_matches_the_julia_parametric_model():
-    from examodels import _bridge as _b
+    from madsuite import _bridge as _b
     core, x, th = parametric_model()
     p = exa.Model(core)
 

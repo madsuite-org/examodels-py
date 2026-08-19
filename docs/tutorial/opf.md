@@ -3,7 +3,7 @@
 A worked model that uses most of the package at once: tables as index sets,
 per-row field access, bounds that vary by row, and a balance constraint
 assembled from several sources. The complete script is
-[`examples/ac_opf.py`](https://github.com/madsuite-org/examodels-py/blob/main/examples/ac_opf.py),
+[`examples/ac_opf.py`](https://github.com/madsuite-org/madsuite-py/blob/main/examples/ac_opf.py),
 which runs against the [PGLib](https://github.com/power-grid-lib/pglib-opf)
 benchmark cases:
 

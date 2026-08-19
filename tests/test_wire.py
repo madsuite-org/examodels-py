@@ -5,7 +5,7 @@ import threading
 import numpy as np
 import pytest
 
-from examodels import _wire
+from madsuite import _wire
 
 
 def test_roundtrip_carries_numpy_out_of_band():
@@ -40,19 +40,19 @@ def test_a_mid_frame_close_raises():
 
 
 def test_the_env_var_configures_and_disables(monkeypatch):
-    monkeypatch.setenv("EXAMODELS_DAEMON", "0")
+    monkeypatch.setenv("MADSUITE_DAEMON", "0")
     assert _wire.socket_path() is None
-    monkeypatch.setenv("EXAMODELS_DAEMON", "/somewhere/else.sock")
+    monkeypatch.setenv("MADSUITE_DAEMON", "/somewhere/else.sock")
     assert _wire.socket_path() == "/somewhere/else.sock"
-    monkeypatch.delenv("EXAMODELS_DAEMON")
+    monkeypatch.delenv("MADSUITE_DAEMON")
     assert _wire.socket_path().endswith("daemon.sock")
 
 
 def test_identity_disagreement_is_refusal():
-    me = {"proto": _wire.PROTO, "examodels": "0.1.0",
+    me = {"proto": _wire.PROTO, "madsuite": "0.1.0",
           "backend_pin": "=0.12.0", "python": "3.12"}
     assert _wire.agree(me, dict(me))
-    assert not _wire.agree(me, {**me, "examodels": "0.2.0"})
+    assert not _wire.agree(me, {**me, "madsuite": "0.2.0"})
     assert not _wire.agree(me, None)
 
 

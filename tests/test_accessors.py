@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from conftest import requires
 
-import examodels as exa
+import madsuite as exa
 
 
 @pytest.fixture

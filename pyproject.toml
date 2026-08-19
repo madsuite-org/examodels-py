@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "examodels"
+name = "madsuite"
 version = "0.1.0"
 description = "Python interface to ExaModels.jl — SIMD-parallel algebraic modeling and AD for nonlinear programs on CPUs and GPUs"
 readme = "README.md"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 dependencies = ["juliacall>=0.9.20", "numpy>=1.23"]
 
 [project.scripts]
-examodels = "examodels.daemon:main"
+madsuite = "madsuite.daemon:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7", "pytest-cov>=4", "tomli>=2; python_version < '3.11'"]
@@ -24,7 +24,7 @@ cuda = ["cupy-cuda12x>=13"]
 # The cache-hit half of Core(cache=...): loading a compiled entry (cnlpmodels)
 # and solving it without Julia (cyipopt). Imported lazily, only on a hit.
 # cnlpmodels is unreleased, so the extra carries a direct reference; PyPI
-# rejects those, so publishing examodels means publishing cnlpmodels FIRST
+# rejects those, so publishing madsuite means publishing cnlpmodels FIRST
 # and flattening this to `cnlpmodels>=0.1`.
 cache = ["cnlpmodels @ git+https://github.com/madsuite-org/cnlpmodels-py",
          "cyipopt"]
@@ -33,7 +33,7 @@ cache = ["cnlpmodels @ git+https://github.com/madsuite-org/cnlpmodels-py",
 where = ["src"]
 
 [tool.setuptools.package-data]
-examodels = ["juliapkg.json"]
+madsuite = ["juliapkg.json"]
 
 [tool.ruff]
 line-length = 100
@@ -51,7 +51,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # These files embed Julia source in long string literals, which cannot be wrapped
 # without making the Julia unreadable.
-"src/examodels/_bridge.py" = ["E501"]
+"src/madsuite/_bridge.py" = ["E501"]
 # The examples and a few tests must extend sys.path before importing a sibling.
 # E402: a sibling import needs sys.path extended first.
 # B023: a lambda in a loop body is traced immediately, before the next iteration

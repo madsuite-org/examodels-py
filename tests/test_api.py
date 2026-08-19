@@ -2,19 +2,19 @@
 import numpy as np
 import pytest
 
-import examodels as exa
+import madsuite as exa
 
 
 def test_import_does_not_start_the_backend():
-    """`import examodels` must be instant: no runtime boot until a model is built."""
+    """`import madsuite` must be instant: no runtime boot until a model is built."""
     import subprocess
     import sys
     import textwrap
     out = subprocess.run(
         [sys.executable, "-c", textwrap.dedent("""
             import time; t = time.perf_counter()
-            import examodels
-            from examodels import _bridge
+            import madsuite
+            from madsuite import _bridge
             print(f"{_bridge.started()} {time.perf_counter() - t:.3f}")
         """)], capture_output=True, text=True, check=True).stdout.split()
     assert out[0] == "False", "importing the package started the backend"

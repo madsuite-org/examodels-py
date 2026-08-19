@@ -1,8 +1,8 @@
 """A Python function must produce exactly the expression ExaModels' own tracing does."""
 import pytest
 
-import examodels as exa
-from examodels.testing import full_types, reference_trace, same_structure
+import madsuite as exa
+from madsuite.testing import full_types, reference_trace, same_structure
 
 N = 10
 
@@ -80,7 +80,7 @@ def test_generator_expression_traces_like_a_lambda(xvar):
     y = core.add_var(N)
     got_gen = exa.trace(lambda i: 100 * (y[i-1]**2 - y[i])**2 + (y[i-1] - 1)**2)
     # build the same thing through the generator path and compare structurally
-    from examodels.core import _as_function
+    from madsuite.core import _as_function
     f, over = _as_function((100 * (y[i-1]**2 - y[i])**2 + (y[i-1] - 1)**2
                             for i in range(1, N)), None)
     assert over == range(1, N), over
@@ -89,7 +89,7 @@ def test_generator_expression_traces_like_a_lambda(xvar):
 
 def test_generator_expression_does_not_consume_the_generator():
     g = (i * 2 for i in range(4))
-    from examodels.core import _as_function
+    from madsuite.core import _as_function
     _as_function(g, None)
     assert list(g) == [0, 2, 4, 6], "the generator was consumed while tracing"
 

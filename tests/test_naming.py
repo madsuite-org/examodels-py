@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-import examodels as exa
+import madsuite as exa
 
 
 def named_core():

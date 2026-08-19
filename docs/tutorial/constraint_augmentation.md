@@ -7,7 +7,7 @@ would defeat the point, so terms are added into rows already declared.
 ```python
 from collections import namedtuple
 
-import examodels as exa
+import madsuite as exa
 
 Bus = namedtuple("Bus", "i pd gs")
 Arc = namedtuple("Arc", "i bus")

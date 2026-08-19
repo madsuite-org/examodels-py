@@ -13,13 +13,13 @@ import types
 import pytest
 from conftest import requires
 
-import examodels as exa
-from examodels import _bridge as _b
-from examodels.model import Solution
-from examodels.solve import available_solvers, solve
+import madsuite as exa
+from madsuite import _bridge as _b
+from madsuite.model import Solution
+from madsuite.solve import available_solvers, solve
 
-# `examodels.solve` the attribute is the function; the module is fetched by name
-solve_mod = importlib.import_module("examodels.solve")
+# `madsuite.solve` the attribute is the function; the module is fetched by name
+solve_mod = importlib.import_module("madsuite.solve")
 
 
 @pytest.fixture

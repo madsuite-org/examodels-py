@@ -4,8 +4,8 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
-import examodels as exa
-from examodels.testing import full_types, reference_trace, same_structure
+import madsuite as exa
+from madsuite.testing import full_types, reference_trace, same_structure
 
 N = 10
 
@@ -20,7 +20,7 @@ def test_generator_and_function_agree_with_the_backend():
     x = core.add_var(N)
     want = reference_trace(x, "100 * (x[i-1]^2 - x[i])^2 + (x[i-1] - 1)^2 for i = 2:10")
 
-    from examodels.core import _as_function
+    from madsuite.core import _as_function
     body, over = _as_function(
         (100 * (x[i-1]**2 - x[i])**2 + (x[i-1] - 1)**2 for i in range(1, N)), None)
     assert over == range(1, N), "the index set must come from the generator itself"

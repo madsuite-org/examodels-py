@@ -39,7 +39,7 @@ You can watch that directly, in a session that is already warm:
 ```python
 import time
 
-import examodels as exa
+import madsuite as exa
 
 
 def rosenbrock(n):
@@ -71,7 +71,7 @@ import subprocess, sys, textwrap
 
 print(subprocess.run([sys.executable, "-c", textwrap.dedent("""
     import time
-    import examodels as exa
+    import madsuite as exa
     t0 = time.perf_counter()
     core = exa.Core()
     x = core.add_var(10, start=1.0)

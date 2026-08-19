@@ -3,7 +3,7 @@
 ```python
 from collections import namedtuple
 
-import examodels as exa
+import madsuite as exa
 
 nscen = 3
 Row = namedtuple("Row", "i t")

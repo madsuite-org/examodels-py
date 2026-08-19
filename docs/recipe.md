@@ -4,7 +4,7 @@ A `Core` is normally built from data you already have, so the model and its data
 are finished together. Ask for placeholders instead and the two come apart:
 
 ```python
-import examodels as exa
+import madsuite as exa
 
 core, N, x0 = exa.recipe(nargs=2)          # or: exa.Core(nargs=2), then core.args
 x = core.add_var(N, start=x0)

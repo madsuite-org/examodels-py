@@ -7,8 +7,8 @@ exercised only as a side effect of model building.
 """
 import pytest
 
-from examodels import _bridge as _b
-from examodels._bridge import ModelError, _satisfies, translate
+from madsuite import _bridge as _b
+from madsuite._bridge import ModelError, _satisfies, translate
 
 
 def test_caret_semantics_match_on_leading_nonzero():

@@ -239,7 +239,7 @@ def compile_library(out, models, *examples, prefix=None, trim="safe", bundle=Fal
     if not compiler_available():
         raise RuntimeError(
             "the compiler backend is not installed in this environment; run "
-            "`examodels.install_compiler()` once (it needs a network)."
+            "`madsuite.install_compiler()` once (it needs a network)."
         )
     if isinstance(argfun, str):
         argfun = _named_argfun(argfun)
