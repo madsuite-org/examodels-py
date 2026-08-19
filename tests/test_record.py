@@ -243,3 +243,35 @@ def test_the_recorder_itself_is_backend_neutral():
     rec.add_obj(lambda i: (x[i] - 1.0) ** 2, over=range(3))
     fp, dd = rec.fingerprint()
     assert len(fp) == 64 and len(dd) == 64
+
+
+def test_math_functions_resolve_without_julia_when_julia_is_down():
+    """`sin = exa.sin` at the top of a script must not boot Julia: the
+    process may be about to record (for the daemon or the cache) and never
+    need it. Resolution defers — recording works, fingerprints match the
+    inside-a-trace form, and an eager call still forwards to the real
+    operator (booting Julia then, when it is inevitable). Subprocess,
+    because this suite's own process usually has Julia up already."""
+    import subprocess
+    import sys
+    code = """
+import sys
+import examodels as exa
+f = exa.sin
+assert not any("juliacall" in m for m in sys.modules), "resolution booted Julia"
+core = exa.Core(cache=True)
+x = core.add_var(3, start=0.0)
+core.add_obj(lambda i: f(x[i]) + exa.cos(x[i]), over=range(3))
+core2 = exa.Core(cache=True)
+x2 = core2.add_var(3, start=0.0)
+core2.add_obj(lambda i: exa.sin(x2[i]) + exa.cos(x2[i]), over=range(3))
+assert core.fingerprint() == core2.fingerprint(), "deferred form must fingerprint identically"
+assert not any("juliacall" in m for m in sys.modules), "recording booted Julia"
+got = f(0.5)                       # eager call: forwards to the real operator
+assert any("juliacall" in m for m in sys.modules), "the eager call is where Julia loads"
+want = exa.sin(0.5)                # resolved the validated way (Julia is up now)
+assert type(got) is type(want) and repr(got) == repr(want), (got, want)
+"""
+    out = subprocess.run([sys.executable, "-c", code],
+                         capture_output=True, text=True, timeout=300)
+    assert out.returncode == 0, out.stdout + out.stderr
