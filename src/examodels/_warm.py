@@ -170,16 +170,22 @@ class DaemonModel(Model):
     def solve(self, solver=None, **options):
         if self._eager is not None:
             return self._eager.solve(solver=solver, **options)
+        # Key first, record only on demand: the record re-serializes the whole
+        # model (~MBs), and on an instance hit the daemon has no use for it.
+        # Parameter values always cross in full — they live outside both
+        # digests, so the instance's last values say nothing about ours.
+        base = {"op": "SOLVE", "label": self._label, "key": self._key,
+                "args": self._args, "params": self._all_params(),
+                "solver": solver, "options": options}
         sock = _wire.connect(_wire.socket_path(), timeout=5.0)
         if sock is None:
             return self._fallback().solve(solver=solver, **options)
         try:
-            _wire.send(sock, {
-                "op": "SOLVE", "label": self._label, "record": self._record,
-                "key": self._key, "args": self._args,
-                "params": self._overrides,
-                "solver": solver, "options": options})
+            _wire.send(sock, {**base, "record": None})
             reply = _wire.recv(sock)
+            if reply is not None and reply.get("need_record"):
+                _wire.send(sock, {**base, "record": self._record})
+                reply = _wire.recv(sock)
         except (OSError, ConnectionError):
             reply = None
         finally:
@@ -189,6 +195,14 @@ class DaemonModel(Model):
         if not reply.get("ok"):
             raise _mapped(reply.get("error", {}))
         return DaemonSolution(reply, self._var, self._con)
+
+    def _all_params(self):
+        """Every parameter block's values as this model sees them: the
+        record's own values, with `set_parameters` overrides on top."""
+        values = {("par", r["ordinal"]): r["values"]
+                  for r in self._record._records if r["kind"] == "par"}
+        values.update(self._overrides)
+        return values
 
     def _fallback(self):
         """The in-process model, built once — replay grafts the caller's

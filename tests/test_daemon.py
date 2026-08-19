@@ -200,6 +200,8 @@ def test_a_parameter_sweep_replays_once(daemon, monkeypatch):
     assert s1["solves"] == s0["solves"] + 6
     assert s1["replays"] == s0["replays"] + 1, "a sweep is one replay, then hits"
     assert s1["hits"] == s0["hits"] + 5
+    assert s1["records_received"] == s0["records_received"] + 1, \
+        "the record must cross the wire exactly once for a sweep"
 
 
 @requires("ipopt")

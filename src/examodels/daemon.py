@@ -40,6 +40,7 @@ class _State:
         self.hits = 0           # instance served live, replay skipped
         self.instances = 0
         self.evictions = 0
+        self.records_received = 0   # full records that crossed the wire
 
     def snapshot(self):
         with self._lock:
@@ -48,6 +49,7 @@ class _State:
                     "queued": self.queued, "current": self.current,
                     "replays": self.replays, "hits": self.hits,
                     "instances": self.instances, "evictions": self.evictions,
+                    "records_received": self.records_received,
                     "identity": _wire.identity()}
 
     @contextlib.contextmanager
@@ -66,14 +68,14 @@ def _instance(payload, instances, cap, state):
     """The live model for this request — served from the instance table when
     the (fingerprint, data digest) pair matches, replayed otherwise.
 
-    Parameter VALUES live outside both digests (the cache invariant this
-    reuses), so a hit must not trust the values the instance last solved
-    with: the incoming record's own values are pushed first, then the
-    request's overrides.  A fresh replay bakes the record's values already.
+    On a hit the record is never consulted (the client did not even send
+    it): parameter VALUES live outside both digests, so the client ships
+    every block's values with every solve, and that is the only per-request
+    state there is.  A fresh replay bakes the record's values; the shipped
+    values are pushed over them either way.
     """
     from .model import Model
 
-    record = payload["record"]
     args = payload.get("args", ())
     key = payload.get("key")
     hit = key is not None and key in instances
@@ -82,10 +84,10 @@ def _instance(payload, instances, cap, state):
         model, pars = instances[key]
         with state._lock:
             state.hits += 1
-        for r in record._records:
-            if r["kind"] == "par":
-                model.set_parameters(pars[("par", r["ordinal"])], r["values"])
     else:
+        record = payload["record"]
+        with state._lock:
+            state.records_received += 1
         if getattr(record, "cache", None):
             # A cache-carrying record missed its library client-side; the
             # replay here is materialize, so the entry is compiled and stored
@@ -134,6 +136,12 @@ def _solve(payload, instances, cap, state):
     and the daemon stays up."""
     from . import _bridge as _b
 
+    key = payload.get("key")
+    if payload.get("record") is None and not (key is not None and key in instances):
+        # Key-first negotiation: the client held the ~MB record back; this
+        # key is not live here, so ask for it (one extra round trip, paid
+        # only on the path that is about to replay anyway).
+        return {"ok": False, "need_record": True}
     model = _instance(payload, instances, cap, state)
     solver = payload.get("solver")
     options = payload.get("options") or {}
@@ -169,8 +177,10 @@ def _work(jobs, state, stop, cap):
         with state.job(payload.get("label") or "solve"):
             try:
                 result = _solve(payload, instances, cap, state)
-                with state._lock:
-                    state.solves += 1
+                if result.get("ok"):
+                    # a need_record negotiation round is not a solve
+                    with state._lock:
+                        state.solves += 1
             except Exception as e:                           # noqa: BLE001
                 with state._lock:
                     state.errors += 1
