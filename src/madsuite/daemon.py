@@ -235,6 +235,40 @@ def _solve(payload, instances, cap, state, build_only=False):
             "zL": host("multipliers_L"), "zU": host("multipliers_U")}
 
 
+@contextlib.contextmanager
+def _stdout_to(reply):
+    """Redirect this process's fd 1 into stream frames on `reply`.
+
+    The solver's iteration log is written by Julia straight to fd 1 — the
+    daemon's terminal — while the person who asked is watching a different
+    one. During a solve, fd 1 becomes a pipe; a pump thread turns whatever
+    arrives into {"stream": True, "out": ...} frames, which the connection
+    thread forwards ahead of the final result. One solve at a time and only
+    the worker redirects, so the juggling is race-free."""
+    import threading as _threading
+    r, w = os.pipe()
+    saved = os.dup(1)
+    os.dup2(w, 1)
+    os.close(w)
+
+    def pump():
+        while True:
+            chunk = os.read(r, 4096)
+            if not chunk:
+                os.close(r)
+                return
+            reply.put({"stream": True, "out": chunk.decode(errors="replace")})
+
+    t = _threading.Thread(target=pump, daemon=True)
+    t.start()
+    try:
+        yield
+    finally:
+        os.dup2(saved, 1)       # closes the pipe's last write end -> pump EOF
+        os.close(saved)
+        t.join(timeout=5)
+
+
 def _work(jobs, state, stop, cap, idle_exit=None):
     """The main-thread loop: everything that touches Julia happens here.
     The instance table lives here too — main-thread-confined, like Julia.
@@ -265,8 +299,12 @@ def _work(jobs, state, stop, cap, idle_exit=None):
             continue
         with state.job(payload.get("label") or "solve"):
             try:
-                result = _solve(payload, instances, cap, state,
-                                build_only=(kind == "BUILD"))
+                if kind == "SOLVE":
+                    with _stdout_to(reply):
+                        result = _solve(payload, instances, cap, state)
+                else:
+                    result = _solve(payload, instances, cap, state,
+                                    build_only=True)
                 if kind == "SOLVE" and result.get("ok"):
                     # neither a build nor a need_record round is a solve
                     with state._lock:
@@ -326,7 +364,15 @@ def _client(conn, jobs, state, stop):
                     state.queued += 1
                 reply = queue.Queue()
                 jobs.put((op, req, reply))
-                result = reply.get()
+                while True:
+                    result = reply.get()
+                    if result.get("stream"):
+                        # solver output for the client's terminal; if the
+                        # client vanished, keep draining to the final frame
+                        with contextlib.suppress(OSError, ConnectionError):
+                            _wire.send(conn, result)
+                        continue
+                    break
                 if result.get("leased") and req.get("key") is not None:
                     owned.append(req["key"])
                 _wire.send(conn, result)

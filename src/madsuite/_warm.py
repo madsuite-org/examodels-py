@@ -157,6 +157,18 @@ def _build_lease(record, key, args, label, raise_errors=False):
     return sock
 
 
+def _recv_streaming(sock):
+    """The final reply, printing solver-output frames as they arrive — the
+    iteration log lands in this terminal, as it would for an eager solve."""
+    import sys
+    while True:
+        reply = _wire.recv(sock)
+        if reply is None or not reply.get("stream"):
+            return reply
+        sys.stdout.write(reply.get("out", ""))
+        sys.stdout.flush()
+
+
 def _mapped(err):
     """The daemon's error as the exception the eager path would have raised."""
     from ._bridge import ModelError
@@ -225,10 +237,10 @@ class DaemonModel(Model):
                 self.__dict__["_sock"] = sock
             try:
                 _wire.send(sock, {**base, "record": None})
-                reply = _wire.recv(sock)
+                reply = _recv_streaming(sock)
                 if reply is not None and reply.get("need_record"):
                     _wire.send(sock, {**base, "record": self._record})
-                    reply = _wire.recv(sock)
+                    reply = _recv_streaming(sock)
             except (OSError, ConnectionError):
                 reply = None
             if reply is None:       # lease died mid-flight: retry once fresh

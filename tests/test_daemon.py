@@ -399,3 +399,18 @@ def test_idle_exit_stops_a_daemon_nobody_uses(sockdir):
         raise AssertionError("idle daemon never exited") from None
     assert rc == 0
     assert not os.path.exists(path), "the socket must be cleaned up on exit"
+
+
+@requires("ipopt")
+def test_solver_output_streams_to_the_client_terminal(daemon, monkeypatch, capsys):
+    """The iteration log a solve prints lands in the CLIENT's stdout, as it
+    would for an eager solve — not in the daemon's terminal."""
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
+    core, x = _rosenbrock(8)
+    model = exa.Model(core)
+    sol = model.solve()                      # ipopt's default, chatty output
+    assert sol.success
+    out = capsys.readouterr().out
+    assert "Ipopt" in out or "iter" in out, \
+        f"no solver log reached the client (got {len(out)} bytes)"
+    assert "EXIT" in out, "the solver's exit line should stream too"
