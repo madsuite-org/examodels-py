@@ -56,6 +56,21 @@ def solve(model, solver=None, **options):
     >>> sol[x].round(6)
     array([2., 2., 2.])
     """
+    entry, options, _name = _prepared(model, solver, options)
+    import time
+    t0 = time.perf_counter()
+    raw = _b.guard(entry, model._jl, **options)
+    return Solution(raw, elapsed=time.perf_counter() - t0)
+
+
+def _prepared(model, solver, options):
+    """The solver entry point, loaded, with options resolved for this model.
+    Returns (entry, options, resolved solver name).
+
+    Split from `solve` so the daemon can make the same three decisions —
+    default solver by where the arrays live, lazy backend load, device
+    linear solver — and then invoke the entry its own way (it releases the
+    GIL around the call; see daemon.py)."""
     if solver is None:
         solver = "madnlp" if _on_device(model) else "ipopt"
     pkg, _uuid, entry = _lookup(solver)
@@ -74,11 +89,7 @@ def solve(model, solver=None, **options):
     # `setdefault`, so naming one wins.
     if solver == "madnlp" and _on_device(model):
         options.setdefault("linear_solver", _device_linear_solver())
-
-    import time
-    t0 = time.perf_counter()
-    raw = _b.guard(getattr(_b.jl, entry), model._jl, **options)
-    return Solution(raw, elapsed=time.perf_counter() - t0)
+    return getattr(_b.jl, entry), options, solver
 
 
 def _on_device(model):

@@ -278,11 +278,9 @@ class RecordingCore(_Core):
     nscen = 0
 
     def __init__(self, backend=None, minimize=True, nargs=0, cache=True):
-        if backend is not None and (not isinstance(backend, str)
-                                    or backend not in ("serial", "cpu")):
-            raise ValueError(
-                f"a cached model compiles to a CPU shared library; backend "
-                f"{backend!r} cannot be cached — build without cache=")
+        # No backend guard here: the recorder is backend-neutral (the warm
+        # session records accelerator models).  The CPU-only refusal lives
+        # with the cache= argument, in Core.__new__.
         self._backend = backend
         self._minimize = minimize
         self.cache = cache
@@ -549,9 +547,14 @@ class RecordingCore(_Core):
         Returns the eager `Core`, ready for `Model` or `compile_library`.  A
         recipe replays as a recipe: recorded placeholder trees are rebuilt as
         arithmetic over the eager core's own `Arg`s."""
+        from ._warm import suspended
         from .core import Core
-        core = Core(backend=self._backend if backend is None else backend,
-                    minimize=self._minimize, nargs=self._nargs)
+        with suspended():
+            # Genuinely eager, even while a daemon is reachable: a replay is
+            # the fall-back path (or the daemon's own build), so dispatching
+            # from inside it would recurse.
+            core = Core(backend=self._backend if backend is None else backend,
+                        minimize=self._minimize, nargs=self._nargs)
         a, handles = core.args, {}
         for r in self._records:
             kind = r["kind"]

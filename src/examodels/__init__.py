@@ -138,7 +138,8 @@ __all__ = [
 
 
 _SUBMODULES = frozenset({"ops", "core", "node", "model", "solve", "testing",
-                         "advanced", "_bridge", "_record", "_cache"})
+                         "advanced", "_bridge", "_record", "_cache",
+                         "_wire", "_warm", "daemon", "compile", "recipe"})
 
 
 def __getattr__(name):
@@ -151,11 +152,23 @@ def __getattr__(name):
         # Never re-enter for a submodule: `from . import ops` consults this hook while
         # the submodule is still being imported, which would recurse forever.
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    from . import _record
-    if _record.tracing():
+    from . import _bridge, _record
+    if _record.tracing() or not _bridge.loaded():
         # Inside a *recorded* trace, importing ops would boot Julia (its operator
         # list comes from the backend). Return a recorder for any name; a name
         # ExaModels does not register fails at replay, against the real list.
+        #
+        # The same deferral while Julia is simply *not up yet*: a script doing
+        # `sin = exa.sin` at the top cannot yet know whether it will record
+        # (daemon, cache) or build eagerly, and resolving through ops here
+        # would boot Julia in a process that may never need it — measured at
+        # ~10 s of what looked like "tracing cost".  The recorder it gets
+        # records PNodes and forwards eager calls to the real operator
+        # (loading ops then, when Julia is already inevitable); a misspelled
+        # name errors at first eager call or at replay instead of here.  Once
+        # Julia is up, resolution validates eagerly as before.  (Deferred
+        # results are deliberately not cached in globals(): a later access
+        # with Julia up gets the validated, cached form.)
         return _record.math_fn(name)
     import importlib
     ops = importlib.import_module(".ops", __name__)

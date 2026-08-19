@@ -229,11 +229,29 @@ class Core:
     nscen = 0
 
     def __new__(cls, *args, cache=None, **kwargs):
-        if cache and cls is Core:
-            # Caching wants the model *recorded*, not built: RecordingCore keeps
-            # the whole construction in Python so a cache hit never boots Julia.
-            from ._record import RecordingCore
-            return object.__new__(RecordingCore)
+        if cls is Core:
+            if cache:
+                # Caching wants the model *recorded*, not built: RecordingCore
+                # keeps the whole construction in Python so a cache hit never
+                # boots Julia.  The CPU-only guard lives here, with the cache=
+                # that implies it — the recorder itself is backend-neutral
+                # (the daemon records accelerator models).
+                backend = kwargs.get("backend", args[0] if args else None)
+                if backend is not None and (not isinstance(backend, str)
+                                            or backend not in ("serial", "cpu")):
+                    raise ValueError(
+                        f"a cached model compiles to a CPU shared library; "
+                        f"backend {backend!r} cannot be cached — build "
+                        f"without cache=")
+                from ._record import RecordingCore
+                return object.__new__(RecordingCore)
+            from ._warm import dispatching
+            if dispatching():
+                # A warm session is running: record for it instead of building
+                # eagerly.  Everything a record cannot do falls back to eager
+                # construction or an in-process solve; see _warm.py.
+                from ._warm import DispatchCore
+                return object.__new__(DispatchCore)
         return object.__new__(cls)
 
     def __init__(self, backend=None, minimize=True, nargs=0, cache=None):

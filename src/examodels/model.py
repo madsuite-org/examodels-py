@@ -27,14 +27,22 @@ class Model:
     def __new__(cls, core=None, *args, **kwargs):
         from ._record import RecordingCore
         if cls is Model and isinstance(core, RecordingCore):
-            # The cache lookup: a hit is a CachedModel, and no Julia has
-            # entered the process.  For a recipe, `args` instantiate the
-            # loaded library.  (Python then re-invokes __init__ on the
-            # returned instance; CachedModel.__init__ absorbs that.)
-            from ._cache import attach
-            hit = attach(core, args)
-            if hit is not None:
-                return hit
+            if core.cache:
+                # The cache lookup: a hit is a CachedModel, and no Julia has
+                # entered the process.  For a recipe, `args` instantiate the
+                # loaded library.  (Python then re-invokes __init__ on the
+                # returned instance; CachedModel.__init__ absorbs that.)
+                from ._cache import attach
+                hit = attach(core, args)
+                if hit is not None:
+                    return hit
+            # A cache hit beats the daemon (a local library load beats IPC);
+            # on a miss — or for a record made only because a daemon was up —
+            # the warm session is next, and MISS below is the catch-all.
+            from ._warm import try_daemon
+            served = try_daemon(core, args)
+            if served is not None:
+                return served
         return object.__new__(cls)
 
     def __init__(self, core, *args):
@@ -44,12 +52,18 @@ class Model:
         from .core import Core
         from .recipe import _unwrap
         if isinstance(core, RecordingCore):
-            # A miss (a hit never reaches here): replay through the eager
-            # path, compile and store the entry synchronously, and carry on
-            # as an ordinary eager model for this run — instantiated with
-            # `args` below, for a recipe.
-            from ._cache import materialize
-            core = materialize(core, args)
+            if core.cache:
+                # A miss (a hit never reaches here): replay through the eager
+                # path, compile and store the entry synchronously, and carry
+                # on as an ordinary eager model for this run — instantiated
+                # with `args` below, for a recipe.
+                from ._cache import materialize
+                core = materialize(core, args)
+            else:
+                # A daemon record whose daemon went away: plain replay, no
+                # cache to fill.  Grafting inside replay keeps the caller's
+                # handles working.
+                core = core.replay()
         if isinstance(core, Core):
             if args:
                 self._jl = _b.guard(

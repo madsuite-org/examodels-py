@@ -69,9 +69,15 @@ this package carries it into Python:
   [cnlpmodels](https://github.com/madsuite-org/cnlpmodels-py) and solves with
   no compilation overhead at all — about half a second end to end.
 
+For GPU models — which cannot be cached to a library — the same per-run
+price is removed by the **warm session**: run `examodels` in a terminal and
+every script on the machine dispatches to it, unchanged, paying seconds
+instead of minutes. See the
+[manual page](https://madsuite.org/examodels-py/daemon/).
+
 The [manual](https://madsuite.org/examodels-py/) covers all of it: parameters,
 multi-dimensional blocks, indexing over data tables, GPUs, recipes, the
-compiler, and what the first call costs.
+compiler, the warm session, and what the first call costs.
 
 ## Installation
 
