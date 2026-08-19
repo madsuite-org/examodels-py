@@ -186,13 +186,19 @@ def _gil_free_solve(model, solver, options):
 
 
 def _reclaim():
-    """Best-effort device-memory release after an eviction; refined in the
-    memory/lifetime phase.  Only touches CUDA when it is already loaded."""
+    """Best-effort memory release after a destroy or eviction.
+
+    GIL-free like the solves, and for the same reason: a full GC over a
+    multi-GB heap plus a device reclaim is a long single Julia call, and
+    holding the GIL through it froze the handshake threads — a client
+    arriving in that window timed out and silently paid a five-minute
+    in-process boot (observed: 'served by daemon: False' on a repeat).
+    Only touches CUDA when it is already loaded."""
     with contextlib.suppress(Exception):
         from . import _bridge as _b
-        _b.seval("GC.gc()")
+        _b.seval("PythonCall.GIL.@unlock GC.gc()")
         if _b.seval("isdefined(Main, :CUDA)"):
-            _b.seval("Main.CUDA.reclaim()")
+            _b.seval("PythonCall.GIL.@unlock Main.CUDA.reclaim()")
 
 
 def _solve(payload, instances, cap, state, build_only=False):

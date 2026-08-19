@@ -41,10 +41,12 @@ def dispatching():
     Probed per `Core(...)`: one connect + handshake against a local socket,
     microseconds when absent (ENOENT) and milliseconds when present — and
     never cached, so a daemon started or stopped between two cores in one
-    process is seen."""
+    process is seen. The generous timeout only ever costs anything when a
+    daemon exists but is busy — and then eagerly giving up is the expensive
+    choice, not the wait."""
     if _suspended.get():
         return False
-    sock = _wire.connect(_wire.socket_path(), timeout=2.0)
+    sock = _wire.connect(_wire.socket_path(), timeout=10.0)
     if sock is None:
         return False
     sock.close()
@@ -137,7 +139,10 @@ def _build_lease(record, key, args, label, raise_errors=False):
     the instance.  A genuine model error during the daemon-side build is
     raised when `raise_errors` (eager parity at `Model(core)`); transport
     failures are always just None — the caller falls back in-process."""
-    sock = _wire.connect(_wire.socket_path(), timeout=5.0)
+    # Patient on purpose: a daemon busy replaying someone's model answers
+    # slowly, and giving up here costs the client a minutes-long in-process
+    # boot — seconds of waiting is the far cheaper side of that bet.
+    sock = _wire.connect(_wire.socket_path(), timeout=15.0)
     if sock is None:
         return None
     base = {"op": "BUILD", "label": label, "key": key, "args": args}
