@@ -172,13 +172,15 @@ def test_a_repeated_model_reuses_the_live_instance(daemon, monkeypatch):
     monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
     s0 = _stat(daemon)
     core1, x1 = _rosenbrock(9)
-    a = exa.Model(core1).solve(print_level=0, sb="yes")
+    m1 = exa.Model(core1)               # bound: the lease must outlive m2's build
+    a = m1.solve(print_level=0, sb="yes")
     core2, x2 = _rosenbrock(9)          # same structure, same data
-    b = exa.Model(core2).solve(print_level=0, sb="yes")
+    m2 = exa.Model(core2)
+    b = m2.solve(print_level=0, sb="yes")
     s1 = _stat(daemon)
     assert s1["solves"] == s0["solves"] + 2
     assert s1["replays"] == s0["replays"] + 1, "the second build must hit live"
-    assert s1["hits"] == s0["hits"] + 1
+    assert s1["hits"] == s0["hits"] + 3, "build hit + two solve hits"
     np.testing.assert_allclose(b.x, a.x, rtol=1e-12)
 
 
@@ -189,8 +191,8 @@ def test_a_parameter_sweep_replays_once(daemon, monkeypatch):
     x = core.add_var(4, start=0.0)
     p = core.add_par([0.0] * 4)
     core.add_obj(lambda i: (x[i] - p[i]) ** 2, over=range(4))
-    model = exa.Model(core)
     s0 = _stat(daemon)
+    model = exa.Model(core)              # the build (and the one replay) is here
     for k in range(6):
         target = [float(k + j) for j in range(4)]
         model.set_parameters(p, target)
@@ -199,7 +201,7 @@ def test_a_parameter_sweep_replays_once(daemon, monkeypatch):
     s1 = _stat(daemon)
     assert s1["solves"] == s0["solves"] + 6
     assert s1["replays"] == s0["replays"] + 1, "a sweep is one replay, then hits"
-    assert s1["hits"] == s0["hits"] + 5
+    assert s1["hits"] == s0["hits"] + 6
     assert s1["records_received"] == s0["records_received"] + 1, \
         "the record must cross the wire exactly once for a sweep"
 
@@ -219,13 +221,13 @@ def test_an_instance_hit_takes_the_records_own_parameter_values(daemon, monkeypa
         core.add_obj(lambda i: (x[i] - p[i]) ** 2, over=range(2))
         return exa.Model(core), x
 
-    m1, x1 = build([1.0, 1.0])
     s0 = _stat(daemon)
+    m1, x1 = build([1.0, 1.0])
     a = m1.solve(print_level=0, sb="yes")
     m2, x2 = build([9.0, 9.0])
     b = m2.solve(print_level=0, sb="yes")
     s1 = _stat(daemon)
-    assert s1["replays"] == s0["replays"] + 1 and s1["hits"] == s0["hits"] + 1, \
+    assert s1["replays"] == s0["replays"] + 1 and s1["hits"] == s0["hits"] + 3, \
         "these two records must share one instance"
     np.testing.assert_allclose(a[x1], [1.0, 1.0], atol=1e-6)
     np.testing.assert_allclose(b[x2], [9.0, 9.0], atol=1e-6)
@@ -240,15 +242,75 @@ def test_eviction_rebuilds_and_stays_correct(tmp_path, monkeypatch):
         core_a, _ = _rosenbrock(7)
         core_b, _ = _rosenbrock(8)
         m_a, m_b = exa.Model(core_a), exa.Model(core_b)
-        a1 = m_a.solve(print_level=0, sb="yes")
-        m_b.solve(print_level=0, sb="yes")      # evicts A
-        a2 = m_a.solve(print_level=0, sb="yes")  # rebuilds A
+        a1 = m_a.solve(print_level=0, sb="yes")   # A evicted by B's build: rebuild
+        m_b.solve(print_level=0, sb="yes")        # B evicted by A's rebuild: rebuild
+        a2 = m_a.solve(print_level=0, sb="yes")   # and again
         s = _stat(path)
         assert s["instances"] == 1
-        assert s["evictions"] == 2
-        assert s["replays"] == 3, "A, B, then A again after eviction"
+        assert s["evictions"] == 4
+        assert s["replays"] == 5, "2 builds + 3 post-eviction rebuilds"
         assert a2.objective == pytest.approx(a1.objective, rel=1e-9)
     finally:
         subprocess.run([sys.executable, "-m", "examodels.daemon", "stop",
                         "--socket", path], timeout=30)
         proc.wait(10)
+
+
+# ---- phase 3: lifetime -------------------------------------------------------
+
+@requires("ipopt")
+def test_client_exit_destroys_its_instances(daemon, monkeypatch):
+    """The directive this phase implements: a model object must not outlive
+    the client process that asked for it. Only compilation caches stay."""
+    code = (
+        "import os\n"
+        f"os.environ['EXAMODELS_DAEMON'] = {daemon!r}\n"
+        "import examodels as exa\n"
+        "core = exa.Core()\n"
+        "x = core.add_var(5, start=0.0)\n"
+        "core.add_obj(lambda i: (x[i] - 2.5) ** 2, over=range(5))\n"
+        "m = exa.Model(core)\n"
+        "s = m.solve(print_level=0, sb='yes')\n"
+        "assert s.success\n"
+    )
+    s0 = _stat(daemon)
+    out = subprocess.run([sys.executable, "-c", code],
+                         capture_output=True, text=True, timeout=300)
+    assert out.returncode == 0, out.stdout + out.stderr
+    deadline = time.time() + 10          # the hangup reaches the worker async
+    while time.time() < deadline:
+        s1 = _stat(daemon)
+        if (s1["instances"] == s0["instances"]
+                and s1["destroyed"] == s0["destroyed"] + 1):
+            break
+        time.sleep(0.2)
+    assert s1["instances"] == s0["instances"], \
+        "the exited client's instance is still alive in the daemon"
+    assert s1["destroyed"] == s0["destroyed"] + 1
+
+
+@requires("ipopt")
+def test_a_shared_instance_survives_until_its_last_owner_leaves(daemon, monkeypatch):
+    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    core1, _ = _rosenbrock(11)
+    keeper = exa.Model(core1)            # this process holds a lease
+    s0 = _stat(daemon)
+    code = (
+        "import os\n"
+        f"os.environ['EXAMODELS_DAEMON'] = {daemon!r}\n"
+        "import examodels as exa\n"
+        "core = exa.Core()\n"
+        "x = core.add_var(11, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(11)])\n"
+        "core.add_obj(lambda i: 100 * (x[i - 1] ** 2 - x[i]) ** 2 + (x[i - 1] - 1) ** 2,\n"
+        "             over=range(1, 11))\n"
+        "m = exa.Model(core)\n"
+        "assert m.solve(print_level=0, sb='yes').success\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code],
+                         capture_output=True, text=True, timeout=300)
+    assert out.returncode == 0, out.stdout + out.stderr
+    time.sleep(2)                        # give a wrong teardown time to happen
+    s1 = _stat(daemon)
+    assert s1["destroyed"] == s0["destroyed"], \
+        "the other client's exit must not kill an instance this one still leases"
+    assert keeper.solve(print_level=0, sb="yes").success

@@ -96,27 +96,65 @@ class DispatchCore(RecordingCore):
 def try_daemon(core, args):
     """A `DaemonModel` for this record, or None to fall through to MISS.
 
-    The probe here is load-bearing for cache= records: with no daemon, a
-    cache miss must materialize at `Model(core)` — synchronously, erroring
-    where the eager path errors — exactly as it does today."""
+    Model creation is a daemon-side BUILD, separate from any solve: the
+    instance exists (and its replay cost is paid) when `Model(core)`
+    returns, mirroring the eager path — including errors, which are raised
+    here, where eager construction would raise them.  The connection opened
+    for the BUILD is the model's LEASE: it stays open for the model's
+    lifetime, and the daemon destroys the instance when the last lease
+    closes — a client exiting takes its models with it.
+
+    Falling through to None is load-bearing for cache= records: with no
+    daemon, a cache miss must materialize at `Model(core)` — synchronously,
+    erroring where the eager path errors — exactly as it does today."""
     if core._nargs:
         return None       # a recipe's layout exists only per instance
-    if not dispatching():
-        return None
     from ._cache import _layout
     fp, dd = core.fingerprint()
+    key = (fp, dd)
+    sock = _build_lease(core, key, tuple(args), fp[:12], raise_errors=True)
+    if sock is None:
+        return None
     self = object.__new__(DaemonModel)
     self.__dict__["_record"] = core
     self.__dict__["_args"] = tuple(args)
     self.__dict__["_overrides"] = {}
-    self.__dict__["_key"] = (fp, dd)
+    self.__dict__["_key"] = key
     self.__dict__["_label"] = fp[:12]
+    self.__dict__["_sock"] = sock
     var, con, _par, nvar, ncon = _layout(core)
     self.__dict__["_var"], self.__dict__["_con"] = var, con
     self.__dict__["_sizes"] = (nvar, ncon)
     self.__dict__["_named"] = dict(core._named)
     self.__dict__["_eager"] = None
     return self
+
+
+def _build_lease(record, key, args, label, raise_errors=False):
+    """A handshaken connection on which `key` is built and leased, or None.
+
+    Key first: the record crosses only if the daemon does not already hold
+    the instance.  A genuine model error during the daemon-side build is
+    raised when `raise_errors` (eager parity at `Model(core)`); transport
+    failures are always just None — the caller falls back in-process."""
+    sock = _wire.connect(_wire.socket_path(), timeout=5.0)
+    if sock is None:
+        return None
+    base = {"op": "BUILD", "label": label, "key": key, "args": args}
+    try:
+        _wire.send(sock, {**base, "record": None})
+        reply = _wire.recv(sock)
+        if reply is not None and reply.get("need_record"):
+            _wire.send(sock, {**base, "record": record})
+            reply = _wire.recv(sock)
+    except (OSError, ConnectionError):
+        reply = None
+    if reply is None or not reply.get("ok"):
+        sock.close()
+        if reply is not None and reply.get("error") and raise_errors:
+            raise _mapped(reply["error"])
+        return None
+    return sock
 
 
 def _mapped(err):
@@ -170,31 +208,46 @@ class DaemonModel(Model):
     def solve(self, solver=None, **options):
         if self._eager is not None:
             return self._eager.solve(solver=solver, **options)
-        # Key first, record only on demand: the record re-serializes the whole
-        # model (~MBs), and on an instance hit the daemon has no use for it.
-        # Parameter values always cross in full — they live outside both
-        # digests, so the instance's last values say nothing about ours.
+        # The solve rides the lease connection from Model-creation time.
+        # Key first, record only on demand (an eviction under the daemon's
+        # cap); parameter values always cross in full — they live outside
+        # both digests, so the instance's last values say nothing about ours.
         base = {"op": "SOLVE", "label": self._label, "key": self._key,
                 "args": self._args, "params": self._all_params(),
                 "solver": solver, "options": options}
-        sock = _wire.connect(_wire.socket_path(), timeout=5.0)
-        if sock is None:
-            return self._fallback().solve(solver=solver, **options)
-        try:
-            _wire.send(sock, {**base, "record": None})
-            reply = _wire.recv(sock)
-            if reply is not None and reply.get("need_record"):
-                _wire.send(sock, {**base, "record": self._record})
+        for _attempt in (1, 2):
+            sock = self._sock
+            if sock is None:
+                sock = _build_lease(self._record, self._key, self._args,
+                                    self._label)
+                if sock is None:
+                    break           # no daemon anymore: in-process it is
+                self.__dict__["_sock"] = sock
+            try:
+                _wire.send(sock, {**base, "record": None})
                 reply = _wire.recv(sock)
-        except (OSError, ConnectionError):
-            reply = None
-        finally:
-            sock.close()
-        if reply is None:
-            return self._fallback().solve(solver=solver, **options)
-        if not reply.get("ok"):
-            raise _mapped(reply.get("error", {}))
-        return DaemonSolution(reply, self._var, self._con)
+                if reply is not None and reply.get("need_record"):
+                    _wire.send(sock, {**base, "record": self._record})
+                    reply = _wire.recv(sock)
+            except (OSError, ConnectionError):
+                reply = None
+            if reply is None:       # lease died mid-flight: retry once fresh
+                sock.close()
+                self.__dict__["_sock"] = None
+                continue
+            if not reply.get("ok"):
+                raise _mapped(reply.get("error", {}))
+            return DaemonSolution(reply, self._var, self._con)
+        return self._fallback().solve(solver=solver, **options)
+
+    def __del__(self):
+        sock = self.__dict__.get("_sock")
+        if sock is not None:
+            # Closing the lease is what tells the daemon to tear the
+            # instance down (once every other lease is gone too).
+            import contextlib
+            with contextlib.suppress(OSError):
+                sock.close()
 
     def _all_params(self):
         """Every parameter block's values as this model sees them: the
@@ -206,8 +259,15 @@ class DaemonModel(Model):
 
     def _fallback(self):
         """The in-process model, built once — replay grafts the caller's
-        handles, so everything they hold keeps working."""
+        handles, so everything they hold keeps working. Going in-process
+        releases the lease: the daemon must not hold an instance for a
+        model that now lives here."""
         if self._eager is None:
+            sock = self.__dict__.get("_sock")
+            if sock is not None:
+                with contextlib.suppress(OSError):
+                    sock.close()
+                self.__dict__["_sock"] = None
             by_key = {h._key: h for h in self._record._issued}
             eager = Model(self._record.replay(), *self._args)
             for key, values in self._overrides.items():

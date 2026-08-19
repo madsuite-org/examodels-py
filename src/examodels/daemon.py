@@ -40,6 +40,7 @@ class _State:
         self.hits = 0           # instance served live, replay skipped
         self.instances = 0
         self.evictions = 0
+        self.destroyed = 0      # instances torn down when their clients left
         self.records_received = 0   # full records that crossed the wire
 
     def snapshot(self):
@@ -49,6 +50,7 @@ class _State:
                     "queued": self.queued, "current": self.current,
                     "replays": self.replays, "hits": self.hits,
                     "instances": self.instances, "evictions": self.evictions,
+                    "destroyed": self.destroyed,
                     "records_received": self.records_received,
                     "identity": _wire.identity()}
 
@@ -64,24 +66,28 @@ class _State:
                 self.current = None
 
 
-def _instance(payload, instances, cap, state):
+def _instance(payload, instances, cap, state, lease):
     """The live model for this request — served from the instance table when
     the (fingerprint, data digest) pair matches, replayed otherwise.
 
-    On a hit the record is never consulted (the client did not even send
-    it): parameter VALUES live outside both digests, so the client ships
-    every block's values with every solve, and that is the only per-request
-    state there is.  A fresh replay bakes the record's values; the shipped
-    values are pushed over them either way.
+    Instances belong to client connections: a `lease` (a BUILD, or a solve
+    that had to build) adds this connection to the instance's owners, and
+    `_release` destroys the instance when its last owner hangs up — a model
+    object must never outlive every process that asked for it; only
+    compilation caches stay warm.  On a hit the record is never consulted
+    (the client did not even send it): parameter VALUES live outside both
+    digests, so the client ships every block's values with every request,
+    and that is the only per-request state there is.
     """
     from .model import Model
 
     args = payload.get("args", ())
     key = payload.get("key")
-    hit = key is not None and key in instances
-    if hit:
+    conn = payload.get("conn")
+    built = False
+    if key is not None and key in instances:
         instances.move_to_end(key)
-        model, pars = instances[key]
+        model, pars, owners = instances[key]
         with state._lock:
             state.hits += 1
     else:
@@ -101,10 +107,12 @@ def _instance(payload, instances, cap, state):
         # Replay grafts the eager handles onto the record's own issued
         # handles, so block keys address this model directly.
         pars = {h._key: h for h in record._issued if h._key[0] == "par"}
+        owners = {}
+        built = True
         with state._lock:
             state.replays += 1
         if key is not None:
-            instances[key] = (model, pars)
+            instances[key] = (model, pars, owners)
             evicted = 0
             while len(instances) > cap:
                 instances.popitem(last=False)
@@ -113,11 +121,36 @@ def _instance(payload, instances, cap, state):
                 with state._lock:
                     state.evictions += evicted
                 _reclaim()
-        with state._lock:
-            state.instances = len(instances)
+    if lease and conn is not None and key is not None:
+        owners[conn] = owners.get(conn, 0) + 1
+    with state._lock:
+        state.instances = len(instances)
     for pkey, values in (payload.get("params") or {}).items():
         model.set_parameters(pars[pkey], values)
-    return model
+    return model, built
+
+
+def _release(conn, keys, instances, state):
+    """A client hung up: drop its leases; destroy whatever nobody owns."""
+    died = 0
+    for key in keys:
+        entry = instances.get(key)
+        if entry is None:
+            continue                # evicted earlier; nothing left to drop
+        owners = entry[2]
+        n = owners.get(conn, 0)
+        if n <= 1:
+            owners.pop(conn, None)
+        else:
+            owners[conn] = n - 1
+        if not owners:
+            del instances[key]
+            died += 1
+    with state._lock:
+        state.destroyed += died
+        state.instances = len(instances)
+    if died:
+        _reclaim()
 
 
 def _reclaim():
@@ -130,7 +163,7 @@ def _reclaim():
             _b.seval("Main.CUDA.reclaim()")
 
 
-def _solve(payload, instances, cap, state):
+def _solve(payload, instances, cap, state, build_only=False):
     """Serve one request on the Julia-owning thread. Every exception is the
     caller's answer, never the daemon's problem: the reply carries it back
     and the daemon stays up."""
@@ -142,7 +175,12 @@ def _solve(payload, instances, cap, state):
         # key is not live here, so ask for it (one extra round trip, paid
         # only on the path that is about to replay anyway).
         return {"ok": False, "need_record": True}
-    model = _instance(payload, instances, cap, state)
+    # A BUILD always leases; a solve leases only when it carried a record
+    # (a post-eviction rebuild — its BUILD-time lease covers the hit case).
+    leased = build_only or payload.get("record") is not None
+    model, _built = _instance(payload, instances, cap, state, lease=leased)
+    if build_only:
+        return {"ok": True, "leased": True}
     solver = payload.get("solver")
     options = payload.get("options") or {}
     sol = model.solve(solver=solver, **options)
@@ -158,7 +196,8 @@ def _solve(payload, instances, cap, state):
         iterations = int(sol.iterations)
     except Exception:                                        # noqa: BLE001
         iterations = None
-    return {"ok": True, "status": sol.status, "objective": float(sol.objective),
+    return {"ok": True, "leased": leased,
+            "status": sol.status, "objective": float(sol.objective),
             "iterations": iterations, "elapsed": sol.elapsed,
             "x": host("solution"), "y": host("multipliers"),
             "zL": host("multipliers_L"), "zU": host("multipliers_U")}
@@ -171,14 +210,18 @@ def _work(jobs, state, stop, cap):
     instances = collections.OrderedDict()
     while not stop.is_set():
         try:
-            payload, reply = jobs.get(timeout=0.5)
+            kind, payload, reply = jobs.get(timeout=0.5)
         except queue.Empty:
+            continue
+        if kind == "HANGUP":
+            _release(payload["conn"], payload["keys"], instances, state)
             continue
         with state.job(payload.get("label") or "solve"):
             try:
-                result = _solve(payload, instances, cap, state)
-                if result.get("ok"):
-                    # a need_record negotiation round is not a solve
+                result = _solve(payload, instances, cap, state,
+                                build_only=(kind == "BUILD"))
+                if kind == "SOLVE" and result.get("ok"):
+                    # neither a build nor a need_record round is a solve
                     with state._lock:
                         state.solves += 1
             except Exception as e:                           # noqa: BLE001
@@ -191,6 +234,8 @@ def _work(jobs, state, stop, cap):
 
 def _client(conn, jobs, state, stop):
     me = _wire.identity()
+    conn_id = id(conn)
+    owned = []                      # keys this connection holds leases on
     try:
         while True:
             req = _wire.recv(conn)
@@ -206,19 +251,27 @@ def _client(conn, jobs, state, stop):
                 _wire.send(conn, {"ok": True})
                 stop.set()
                 return
-            elif op == "SOLVE":
+            elif op in ("SOLVE", "BUILD"):
+                req["conn"] = conn_id
                 with state._lock:
                     state.queued += 1
                 reply = queue.Queue()
-                jobs.put((req, reply))
-                _wire.send(conn, reply.get())
+                jobs.put((op, req, reply))
+                result = reply.get()
+                if result.get("leased") and req.get("key") is not None:
+                    owned.append(req["key"])
+                _wire.send(conn, result)
             else:
                 _wire.send(conn, {"ok": False, "error": {
                     "type": "ValueError", "message": f"unknown op {op!r}"}})
     except (OSError, ConnectionError):
-        return                      # client went away; nothing to answer
+        return                      # client went away; teardown still runs
     finally:
         conn.close()
+        if owned:
+            # The client is gone: its models must not pile up in here.  The
+            # release runs on the worker thread, where the table lives.
+            jobs.put(("HANGUP", {"conn": conn_id, "keys": owned}, None))
 
 
 def serve(path=None, max_instances=32):
