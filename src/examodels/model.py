@@ -119,8 +119,11 @@ class Model:
 
     def set_parameters(self, block, values):
         """Change a parameter block's values in place; the model is reused as is."""
+        # Place the values where the model's arrays live, like every other
+        # setter: writing a host array into device memory falls into a scalar
+        # path the backend disallows.
         _b.guard(_b.EM.set_value_b, self._jl, block._jl,
-                 np.asarray(values, dtype=np.float64).ravel())
+                 _b.upload(self._jl, np.asarray(values, dtype=np.float64).ravel()))
         return self
 
     def solve(self, solver=None, **options):
