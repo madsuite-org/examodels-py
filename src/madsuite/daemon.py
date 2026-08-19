@@ -275,7 +275,7 @@ def _stdout_to(reply):
         t.join(timeout=5)
 
 
-def _work(jobs, state, stop, cap, idle_exit=None):
+def _work(jobs, state, stop, cap, idle_exit=None, reassert=None):
     """The main-thread loop: everything that touches Julia happens here.
     The instance table lives here too — main-thread-confined, like Julia.
 
@@ -322,6 +322,10 @@ def _work(jobs, state, stop, cap, idle_exit=None):
                     "type": type(e).__name__, "message": str(e)}}
         reply.put(result)
         _refresh_mem(state)
+        if reassert is not None:
+            # Julia (booted by the job we just ran) installs its own SIGINT
+            # handling; take C-c back so closing the daemon stays ours.
+            reassert()
 
 
 def _refresh_mem(state):
@@ -403,6 +407,41 @@ def serve(path=None, max_instances=32, idle_exit=None):
     # The daemon must never dispatch to a daemon: replay constructs Core()s,
     # and dispatch here would mean connecting to ourselves.
     os.environ["MADSUITE_DAEMON"] = "0"
+
+    # C-c must work from EVERY launch context: a shell-backgrounded child
+    # inherits SIGINT as ignored (and Python then never installs a handler),
+    # and once a solve boots Julia, Julia's runtime takes the signal for
+    # itself.  So the daemon owns SIGINT explicitly, BEFORE the socket
+    # exists (the socket appearing is the outside world's ready signal) —
+    # and _work reasserts the handler after every job, taking it back from
+    # Julia each time.
+    import signal as _signal
+
+    stop = threading.Event()
+    presses = {"n": 0}
+
+    def _on_int(_sig, _frame):
+        presses["n"] += 1
+        if presses["n"] == 1:
+            stop.set()
+            print("\nmadsuite: closing (finishing any running solve; "
+                  "C-c again to force)", flush=True)
+        else:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            os._exit(130)
+
+    def _own_sigint():
+        # Handler AND mask: a parent that had Julia loaded blocks SIGINT at
+        # the pthread level, and a blocked mask survives fork+exec — a
+        # handler alone would never be called in a daemon spawned from such
+        # a process (found the hard way: pytest boots Julia at collection).
+        _signal.pthread_sigmask(_signal.SIG_UNBLOCK,
+                                {_signal.SIGINT, _signal.SIGTERM})
+        _signal.signal(_signal.SIGINT, _on_int)
+        _signal.signal(_signal.SIGTERM, _on_int)
+
+    _own_sigint()
     # A raw connect, not a handshake: a live daemon of any version keeps its
     # socket; only a socket nothing is listening on is stale.
     probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -423,12 +462,13 @@ def serve(path=None, max_instances=32, idle_exit=None):
 
     state = _State()
     jobs = queue.Queue()
-    stop = threading.Event()
+
     threading.Thread(target=_accept, args=(listener, jobs, state, stop),
                      daemon=True).start()
     print(f"madsuite: warm session on {path} (C-c to close)", flush=True)
     try:
-        _work(jobs, state, stop, max_instances, idle_exit)
+        _work(jobs, state, stop, max_instances, idle_exit,
+              reassert=_own_sigint)
     except KeyboardInterrupt:
         print("\nmadsuite: closing")
     finally:
