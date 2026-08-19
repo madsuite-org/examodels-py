@@ -81,6 +81,8 @@ def test_python_dependencies_are_only_what_we_declare():
         "pathlib", "runpy", "subprocess", "textwrap", "shutil", "time", "importlib",
         "collections", "dataclasses", "tomllib", "warnings", "itertools", "functools",
         "contextvars", "hashlib", "operator", "contextlib", "tempfile", "ctypes",
+        # ...and the modules the warm session imports
+        "argparse", "pickle", "queue", "socket", "struct", "threading",
     }
     allowed = required | optional | {"juliapkg"}
     third_party = imported - stdlib - {"examodels"}

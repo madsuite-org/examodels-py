@@ -6,8 +6,10 @@ The module-scoped daemon boots Julia once, on its first solve — later tests
 here are the warm case the feature exists for.
 """
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 import numpy as np
@@ -37,9 +39,23 @@ def _spawn(path, *extra):
     raise RuntimeError("daemon socket never appeared")
 
 
+def _sockdir():
+    """A SHORT directory for socket files: an AF_UNIX path is limited to
+    ~104 bytes on macOS, which pytest's tmp_path comfortably exceeds."""
+    return tempfile.mkdtemp(prefix="exad-")
+
+
+@pytest.fixture
+def sockdir():
+    d = _sockdir()
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
+
+
 @pytest.fixture(scope="module")
-def daemon(tmp_path_factory):
-    path = str(tmp_path_factory.mktemp("warm") / "daemon.sock")
+def daemon():
+    d = _sockdir()
+    path = os.path.join(d, "daemon.sock")
     proc = _spawn(path)
     yield path
     proc.terminate()
@@ -47,6 +63,7 @@ def daemon(tmp_path_factory):
         proc.wait(5)
     except subprocess.TimeoutExpired:
         proc.kill()
+    shutil.rmtree(d, ignore_errors=True)
 
 
 def _stat(path):
@@ -106,8 +123,8 @@ def test_parameter_overrides_ride_along(daemon, monkeypatch):
 
 
 @requires("ipopt")
-def test_a_dying_daemon_never_loses_the_run(tmp_path, monkeypatch):
-    path = str(tmp_path / "short-lived.sock")
+def test_a_dying_daemon_never_loses_the_run(sockdir, monkeypatch):
+    path = os.path.join(sockdir, "short-lived.sock")
     proc = _spawn(path)
     monkeypatch.setenv("EXAMODELS_DAEMON", path)
     core, x = _rosenbrock()
@@ -234,8 +251,8 @@ def test_an_instance_hit_takes_the_records_own_parameter_values(daemon, monkeypa
 
 
 @requires("ipopt")
-def test_eviction_rebuilds_and_stays_correct(tmp_path, monkeypatch):
-    path = str(tmp_path / "tiny.sock")
+def test_eviction_rebuilds_and_stays_correct(sockdir, monkeypatch):
+    path = os.path.join(sockdir, "tiny.sock")
     proc = _spawn(path, "--max-instances", "1")
     try:
         monkeypatch.setenv("EXAMODELS_DAEMON", path)
@@ -360,8 +377,8 @@ def test_a_client_killed_mid_solve_leaves_a_healthy_daemon(daemon, monkeypatch):
 
 
 @requires("ipopt")
-def test_idle_exit_stops_a_daemon_nobody_uses(tmp_path):
-    path = str(tmp_path / "sleepy.sock")
+def test_idle_exit_stops_a_daemon_nobody_uses(sockdir):
+    path = os.path.join(sockdir, "sleepy.sock")
     proc = _spawn(path, "--idle-exit", "0.03")      # 1.8 s
     code = (
         "import os\n"
