@@ -4,7 +4,7 @@
     s.t. 3x_{i+1}^3 + 2x_{i+2} - 5 + sin(x_{i+1}-x_{i+2}) sin(x_{i+1}+x_{i+2})
          + 4x_{i+1} - x_i exp(x_i - x_{i+1}) - 3 = 0,   i = 1..N-2
 """
-import examodels as exa
+import madsuite as exa
 
 
 def main():

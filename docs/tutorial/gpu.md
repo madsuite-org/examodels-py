@@ -7,7 +7,7 @@ afterwards** — the environment cannot change under a running Julia:
 
 <!-- not-tested: installs backend packages; needs a CUDA device -->
 ```python
-import examodels as exa
+import madsuite as exa
 
 exa.install_backend("cuda")      # CUDA + MadNLP + MadNLPGPU + CUDSS, together
 ```
@@ -19,7 +19,7 @@ same solver on the CPU and 5.6 s with Ipopt (all in a warm process):
 
 <!-- not-tested: needs a CUDA device -->
 ```python
-import examodels as exa
+import madsuite as exa
 
 N = 100_000
 core = exa.Core(backend="cuda")

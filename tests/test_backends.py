@@ -6,15 +6,15 @@ import textwrap
 import numpy as np
 import pytest
 
-import examodels as exa
+import madsuite as exa
 
 
 def test_gpu_backend_is_not_loaded_for_a_cpu_model():
     """Building a CPU model must not pull in a GPU runtime."""
     out = subprocess.run(
         [sys.executable, "-c", textwrap.dedent("""
-            import examodels as exa
-            from examodels import _bridge as b
+            import madsuite as exa
+            from madsuite import _bridge as b
             core = exa.Core()
             x = core.add_var(4)
             core.add_obj(lambda i: x[i]**2, over=range(4))
@@ -77,7 +77,7 @@ cuda_only = pytest.mark.skipif(not _HW, reason="no GPU hardware on this machine"
 
 @cuda_only
 def test_model_arrays_live_on_the_device():
-    from examodels import _bridge as b
+    from madsuite import _bridge as b
     model, _ = _luksan(100, "cuda")
     assert "CuArray" in str(b.seval("m -> string(typeof(m.meta.x0))")(model._jl))
 

@@ -12,10 +12,10 @@ import sys
 import numpy as np
 import pytest
 
-import examodels as exa
-from examodels import _cache
-from examodels._bridge import ModelError
-from examodels._cache import CachedModel
+import madsuite as exa
+from madsuite import _cache
+from madsuite._bridge import ModelError
+from madsuite._cache import CachedModel
 
 
 def _core():
@@ -35,7 +35,7 @@ def _core():
 # -- entry resolution ---------------------------------------------------------
 
 def test_entry_resolution_by_spec(monkeypatch, tmp_path):
-    monkeypatch.setenv("EXAMODELS_CACHE", str(tmp_path / "root"))
+    monkeypatch.setenv("MADSUITE_CACHE", str(tmp_path / "root"))
     monkeypatch.setenv("CNLPMODELS_PATH", f"{tmp_path}/a:{tmp_path}/b")
     fp, dd = "f" * 64, "d" * 64
     assert _cache._entries(True, fp, dd) == [
@@ -71,7 +71,7 @@ def test_sidecar_discrimination(tmp_path):
     _sidecar(str(tmp_path / "e"), fp, dd)
     assert _cache._match(core, fp, dd) is not None         # the honest one matches
     for wrong in ({"fingerprint": "0" * 64}, {"data_digest": "0" * 64},
-                  {"backend_pin": "=0.0.1"}, {"format": "examodels-cache-v9"}):
+                  {"backend_pin": "=0.0.1"}, {"format": "madsuite-cache-v9"}):
         _sidecar(str(tmp_path / "e"), fp, dd, **wrong)
         assert _cache._match(core, fp, dd) is None, f"matched despite {wrong}"
 
@@ -186,8 +186,8 @@ def test_lookup_path_is_julia_free():
     import textwrap
     script = textwrap.dedent("""
         import json, os, sys, tempfile
-        import examodels as exa
-        from examodels import _cache
+        import madsuite as exa
+        from madsuite import _cache
         core = exa.Core(cache=True)
         x = core.add_var(4, start=0.5)
         core.add_obj(lambda i: (x[i] - 1.0) ** 2, over=range(4))
@@ -210,7 +210,7 @@ def test_lookup_path_is_julia_free():
             _cache._write_sidecar(d, meta)
             from importlib.util import find_spec
             want = ("libm.so", "shared library") if find_spec("cnlpmodels") \
-                else ("examodels[cache]",)
+                else ("madsuite[cache]",)
             try:
                 _cache.attach(core)
             except Exception as e:
@@ -252,7 +252,7 @@ def test_argsig_is_types_not_values():
 
 
 def test_recipe_entry_key_carries_the_argsig(monkeypatch, tmp_path):
-    monkeypatch.setenv("EXAMODELS_CACHE", str(tmp_path))
+    monkeypatch.setenv("MADSUITE_CACHE", str(tmp_path))
     fp, dd = "f" * 64, "d" * 64
     plain = _cache._entries(True, fp, dd)[0]
     intkey = _cache._entries(True, fp, dd, "i64")[0]
@@ -307,7 +307,7 @@ def test_recording_a_recipe_is_julia_free():
     import textwrap
     script = textwrap.dedent("""
         import sys
-        import examodels as exa
+        import madsuite as exa
         core = exa.Core(nargs=2, cache=True)
         n, w = core.args
         x = core.add_var(n, start=0.5)

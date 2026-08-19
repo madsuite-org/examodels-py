@@ -4,7 +4,7 @@ An index set decides what an expression is evaluated over. Four kinds are suppor
 Every block on this page runs, in order, against this model:
 
 ```python
-import examodels as exa
+import madsuite as exa
 
 N, T = 8, 4
 core = exa.Core()

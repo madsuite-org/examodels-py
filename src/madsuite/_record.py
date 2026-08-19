@@ -33,7 +33,7 @@ from .node import Block, Constraint, Expression, Product, _columns, is_table
 
 __all__ = ["RecordingCore", "PNode", "PArg", "tracing"]
 
-_TRACING = contextvars.ContextVar("examodels_recording", default=False)
+_TRACING = contextvars.ContextVar("madsuite_recording", default=False)
 
 
 def tracing():
@@ -494,7 +494,7 @@ class RecordingCore(_Core):
         Parameter *values* are deliberately excluded from both: they stay live
         through the ABI setter on a loaded library.
 
-        >>> import examodels as exa
+        >>> import madsuite as exa
         >>> core = exa.Core(cache=True)
         >>> x = core.add_var(4, start=0.5)
         >>> _ = core.add_obj(lambda i: (x[i] - 1.0) ** 2, over=range(4))
@@ -505,7 +505,7 @@ class RecordingCore(_Core):
         True
         """
         s, d = hashlib.sha256(), hashlib.sha256()
-        s.update(f"examodels-record-v0;minimize={self._minimize};"
+        s.update(f"madsuite-record-v0;minimize={self._minimize};"
                  f"backend={self._backend};nargs={self._nargs}".encode())
         for r in self._records:
             kind = r["kind"]

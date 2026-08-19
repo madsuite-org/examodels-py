@@ -21,15 +21,15 @@ _LEN = struct.Struct("!Q")
 
 
 def default_socket_path():
-    """Where the daemon listens unless `EXAMODELS_DAEMON` says otherwise."""
+    """Where the daemon listens unless `MADSUITE_DAEMON` says otherwise."""
     run = os.environ.get("XDG_RUNTIME_DIR")
-    base = os.path.join(run, "examodels") if run else f"/tmp/examodels-{os.getuid()}"
+    base = os.path.join(run, "madsuite") if run else f"/tmp/madsuite-{os.getuid()}"
     return os.path.join(base, "daemon.sock")
 
 
 def socket_path():
     """The configured endpoint, or None when dispatch is disabled."""
-    v = os.environ.get("EXAMODELS_DAEMON")
+    v = os.environ.get("MADSUITE_DAEMON")
     if v in ("0", "no", "off"):
         return None
     if v:
@@ -43,7 +43,7 @@ def identity():
 
     from . import __version__
     from ._cache import _pinned_backend
-    return {"proto": PROTO, "examodels": __version__,
+    return {"proto": PROTO, "madsuite": __version__,
             "backend_pin": _pinned_backend(),
             "python": f"{sys.version_info[0]}.{sys.version_info[1]}"}
 

@@ -7,7 +7,7 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
-import examodels as exa
+import madsuite as exa
 
 Row = namedtuple("Row", "i c")
 

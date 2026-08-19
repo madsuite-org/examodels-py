@@ -29,7 +29,7 @@ per-run input, and **one compiled entry serves every instantiation**. With
 small trees, and Julia is not started):
 
 ```python
-import examodels as exa
+import madsuite as exa
 
 core = exa.Core(nargs=2, cache=True)
 n, x0 = core.args
@@ -104,7 +104,7 @@ them needs the [compiler backend](install.md), which needs Julia 1.12 and
 therefore a Python linking OpenSSL ≥ 3.5:
 
 ```
-pip install "examodels[cache] @ git+https://github.com/madsuite-org/examodels-py"
+pip install "madsuite[cache] @ git+https://github.com/madsuite-org/madsuite-py"
 ```
 
 Nothing breaks where those are missing. Without the compiler, `Model`
@@ -116,7 +116,7 @@ beside a live one, so the cache steps aside rather than crash.
 
 ## Where entries live
 
-`cache=True` stores under `$EXAMODELS_CACHE` (default `~/.cache/examodels`),
+`cache=True` stores under `$MADSUITE_CACHE` (default `~/.cache/madsuite`),
 content-addressed. `cache="@name"` installs the library on `CNLPMODELS_PATH`
 under that name, where any cnlp consumer finds it; `cache="/some/path"` uses
 that directory as the entry. Each entry is a shared library plus a JSON

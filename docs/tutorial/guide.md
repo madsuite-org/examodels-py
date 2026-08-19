@@ -4,7 +4,7 @@ A model is built in two stages, mirroring the backend: a `Core` accumulates vari
 parameters, objectives and constraints, and a `Model` is built from it.
 
 ```python
-import examodels as exa
+import madsuite as exa
 
 core = exa.Core()
 ```

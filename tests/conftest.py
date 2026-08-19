@@ -13,30 +13,30 @@ def _no_ambient_daemon():
     """The suite tests the in-process paths: a warm session the developer
     happens to be running must not turn every `Core()` into a dispatch.
     Daemon tests opt back in with their own explicit socket path."""
-    if "EXAMODELS_DAEMON" in os.environ:
+    if "MADSUITE_DAEMON" in os.environ:
         yield
         return
-    os.environ["EXAMODELS_DAEMON"] = "0"
+    os.environ["MADSUITE_DAEMON"] = "0"
     yield
-    del os.environ["EXAMODELS_DAEMON"]
+    del os.environ["MADSUITE_DAEMON"]
 
 
 @pytest.fixture(autouse=True, scope="session")
 def _isolated_model_cache(tmp_path_factory):
     """Tests must never read or write the user's real model cache: a
     `Core(cache=True)` built anywhere in the suite would otherwise compile
-    into (or hit from) `~/.cache/examodels` — found there as residue."""
-    if "EXAMODELS_CACHE" in os.environ:
+    into (or hit from) `~/.cache/madsuite` — found there as residue."""
+    if "MADSUITE_CACHE" in os.environ:
         yield
         return
-    os.environ["EXAMODELS_CACHE"] = str(tmp_path_factory.mktemp("model-cache"))
+    os.environ["MADSUITE_CACHE"] = str(tmp_path_factory.mktemp("model-cache"))
     yield
-    del os.environ["EXAMODELS_CACHE"]
+    del os.environ["MADSUITE_CACHE"]
 
 
 def _installed(name):
-    from examodels import _bridge as _b
-    from examodels.solve import SOLVERS
+    from madsuite import _bridge as _b
+    from madsuite.solve import SOLVERS
     pkg = SOLVERS[name][0]
     try:
         _b.seval(f"using {pkg}")

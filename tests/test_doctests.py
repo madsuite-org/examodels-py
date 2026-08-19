@@ -10,9 +10,9 @@ from importlib import import_module
 
 import pytest
 
-# Resolved through importlib: `examodels.recipe` and `examodels.solve` as
+# Resolved through importlib: `madsuite.recipe` and `madsuite.solve` as
 # ATTRIBUTES are the exported functions of those names, not the submodules.
-MODULES = [import_module(f"examodels.{n}")
+MODULES = [import_module(f"madsuite.{n}")
            for n in ("core", "recipe", "solve", "_record")]
 
 

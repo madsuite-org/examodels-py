@@ -4,7 +4,7 @@ A parameter behaves like a fixed variable inside an expression, and its value ca
 changed afterwards without rebuilding the model — the derivative code is unaffected.
 
 ```python
-import examodels as exa
+import madsuite as exa
 
 N = 10
 core = exa.Core()

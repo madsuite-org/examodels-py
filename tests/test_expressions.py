@@ -1,8 +1,8 @@
 """Subexpressions: reusable, and inlined rather than turned into auxiliary variables."""
 import pytest
 
-import examodels as exa
-from examodels.testing import reference_trace, same_structure
+import madsuite as exa
+from madsuite.testing import reference_trace, same_structure
 
 N = 10
 
@@ -25,7 +25,7 @@ def test_matches_julias_own_add_expr():
     s = core.add_expr(lambda i: y[i]**2, over=range(N))
     got = exa.trace(lambda i: (s[i] - 1)**2)
 
-    from examodels import _bridge as _b
+    from madsuite import _bridge as _b
     want_jl = _b.seval(f"""
         begin
             c = ExaCore(concrete = Val(true))

@@ -9,8 +9,8 @@ import dataclasses
 import numpy as np
 import pytest
 
-import examodels as exa
-from examodels.node import Constraint, Product, _field_names, _table, is_table
+import madsuite as exa
+from madsuite.node import Constraint, Product, _field_names, _table, is_table
 
 
 @pytest.fixture

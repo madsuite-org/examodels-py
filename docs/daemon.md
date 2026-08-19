@@ -10,8 +10,8 @@ The warm session removes it by keeping one process alive. In a terminal (or
 a tmux pane):
 
 ```console
-$ examodels
-examodels: warm session on /run/user/1001/examodels/daemon.sock (C-c to close)
+$ madsuite
+madsuite: warm session on /run/user/1001/madsuite/daemon.sock (C-c to close)
 ```
 
 and every script on the machine now dispatches to it, **unchanged**:
@@ -60,17 +60,17 @@ model that misses is compiled and stored by the session as a side effect.
 ## Controls
 
 ```console
-$ examodels status
+$ madsuite status
 pid 12345, up 2h03m, 41 solves (0 errors), 0 queued, 2 clients, ...
-$ examodels stop
+$ madsuite stop
 ```
 
-- `EXAMODELS_DAEMON=0` — this process never dispatches.
-- `EXAMODELS_DAEMON=/path/to.sock` — dispatch there instead of the default
-  (`$XDG_RUNTIME_DIR/examodels/daemon.sock`).
-- `examodels --max-instances N` — live models kept before the least recently
+- `MADSUITE_DAEMON=0` — this process never dispatches.
+- `MADSUITE_DAEMON=/path/to.sock` — dispatch there instead of the default
+  (`$XDG_RUNTIME_DIR/madsuite/daemon.sock`).
+- `madsuite --max-instances N` — live models kept before the least recently
   used is dropped (a dropped model rebuilds transparently on next use).
-- `examodels --idle-exit MINUTES` — exit after that long with no clients and
+- `madsuite --idle-exit MINUTES` — exit after that long with no clients and
   no work. Julia never unloads compiled code, so a long-lived session only
   grows; an occasional fresh start is the reset.
 

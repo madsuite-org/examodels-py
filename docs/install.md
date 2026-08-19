@@ -1,7 +1,7 @@
 # Installation
 
 ```
-pip install git+https://github.com/madsuite-org/examodels-py
+pip install git+https://github.com/madsuite-org/madsuite-py
 ```
 
 The package is not on PyPI yet, so it is installed from the repository. Python
@@ -12,7 +12,7 @@ The package is not on PyPI yet, so it is installed from the repository. Python
 
 The backend is Julia, but you never install or invoke it: `juliapkg` downloads
 a private Julia and resolves the backend into your environment the first time
-you build a model. `import examodels` does **not** start it — importing stays
+you build a model. `import madsuite` does **not** start it — importing stays
 instant, and the runtime boots on first use.
 :::
 
@@ -27,7 +27,7 @@ through this package, once per environment:
 
 <!-- not-tested: installs a backend package: needs a network, and changes the environment -->
 ```python
-import examodels as exa
+import madsuite as exa
 
 exa.install_solver("ipopt")      # CPU
 exa.install_solver("madnlp")     # CPU or GPU
@@ -49,7 +49,7 @@ only when asked for, so a CPU model never starts a GPU runtime. For sharing
 device memory with CuPy, install the extra as well:
 
 ```
-pip install "examodels[cuda] @ git+https://github.com/madsuite-org/examodels-py"
+pip install "madsuite[cuda] @ git+https://github.com/madsuite-org/madsuite-py"
 ```
 
 ## The compiler
@@ -85,14 +85,14 @@ Compiled models come back through the `[cache]` extra — the julia-free
 loading half of [the model cache](cache.md):
 
 ```
-pip install "examodels[cache] @ git+https://github.com/madsuite-org/examodels-py"
+pip install "madsuite[cache] @ git+https://github.com/madsuite-org/madsuite-py"
 ```
 
 ## Development
 
 ```
-git clone https://github.com/madsuite-org/examodels-py
-cd examodels-py
+git clone https://github.com/madsuite-org/madsuite-py
+cd madsuite
 pip install -e ".[test]"
 pytest -q -m "not slow"
 ```

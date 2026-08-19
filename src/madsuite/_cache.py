@@ -13,8 +13,8 @@ A recorded core resolves here at `Model(core)`:
 
 Where an entry lives is the `cache=` argument's business:
 
-  cache=True     — a content-addressed directory under `$EXAMODELS_CACHE`
-                   (default `~/.cache/examodels`), named by the digests.
+  cache=True     — a content-addressed directory under `$MADSUITE_CACHE`
+                   (default `~/.cache/madsuite`), named by the digests.
   cache="@name"  — installed on `CNLPMODELS_PATH`, where both consumers
                    find it by that name.
   cache="path"   — that directory (or that library file's), exactly.
@@ -36,17 +36,17 @@ import numpy as np
 
 __all__ = ["CachedModel", "CachedSolution"]
 
-SIDECAR = "examodels-cache.json"
-FORMAT = "examodels-cache-v0"
+SIDECAR = "madsuite-cache.json"
+FORMAT = "madsuite-cache-v0"
 
 #: the missing-compiler degradation warns once per process, not per model
 _warned_no_compiler = False
 
 
 def _root():
-    return os.environ.get("EXAMODELS_CACHE") or os.path.join(
+    return os.environ.get("MADSUITE_CACHE") or os.path.join(
         os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
-        "examodels")
+        "madsuite")
 
 
 def _search_dirs():
@@ -58,7 +58,7 @@ def _search_dirs():
 def _pinned_backend():
     """The ExaModels.jl version this package pins, read without Julia."""
     from importlib.resources import files
-    meta = json.loads((files("examodels") / "juliapkg.json").read_text())
+    meta = json.loads((files("madsuite") / "juliapkg.json").read_text())
     return meta["packages"]["ExaModels"]["version"]
 
 
@@ -229,7 +229,7 @@ def attach(core, args=(), fpdd=None):
         raise ModelError(
             "a compiled cache entry matches this model, but loading it needs "
             "the [cache] extra (cnlpmodels + cyipopt): pip install "
-            "\"examodels[cache]\". Or build without cache= to skip the "
+            "\"madsuite[cache]\". Or build without cache= to skip the "
             "cache entirely.") from None
     cm = cnlpmodels.CModel(meta["libpath"], *args, prefix=meta["prefix"])
     return CachedModel._load(cm, core)
@@ -284,7 +284,7 @@ def materialize(core, args=(), fpdd=None):
             import warnings
             warnings.warn(
                 "this model was built eagerly but NOT cached: the compiler "
-                "backend is not installed. Run examodels.install_compiler() "
+                "backend is not installed. Run madsuite.install_compiler() "
                 "once (it needs Julia 1.12, which juliapkg only installs "
                 "when Python links OpenSSL >= 3.5 — see the install manual).",
                 RuntimeWarning, stacklevel=3)

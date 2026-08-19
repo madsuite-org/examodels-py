@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from conftest import requires
 
-import examodels as exa
+import madsuite as exa
 
 N = 10
 
@@ -47,7 +47,7 @@ def test_constraints_are_satisfied_at_the_solution():
 
 def test_matches_the_julia_formulation():
     """The Python model must be the same problem Julia's own model is."""
-    from examodels import _bridge as _b
+    from madsuite import _bridge as _b
     core, _ = luksan_vlcek()
     p = exa.Model(core)
     _b.seval("using ExaModels")

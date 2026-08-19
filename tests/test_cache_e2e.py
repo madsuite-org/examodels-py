@@ -21,8 +21,8 @@ import textwrap
 import numpy as np
 import pytest
 
-import examodels as exa
-from examodels import _cache
+import madsuite as exa
+from madsuite import _cache
 
 
 def _ready():
@@ -64,21 +64,21 @@ import contextlib
 def _cache_env(root):
     """Point the cache at `root`, restoring whatever was there before — the
     suite-wide isolation fixture owns the variable otherwise."""
-    old = os.environ.get("EXAMODELS_CACHE")
-    os.environ["EXAMODELS_CACHE"] = root
+    old = os.environ.get("MADSUITE_CACHE")
+    os.environ["MADSUITE_CACHE"] = root
     try:
         yield
     finally:
         if old is None:
-            os.environ.pop("EXAMODELS_CACHE", None)
+            os.environ.pop("MADSUITE_CACHE", None)
         else:
-            os.environ["EXAMODELS_CACHE"] = old
+            os.environ["MADSUITE_CACHE"] = old
 
 
 
 def _sub(body, root, timeout):
     """Run `MODEL + body` in a fresh interpreter; its last stdout line is JSON."""
-    env = dict(os.environ, EXAMODELS_CACHE=root)
+    env = dict(os.environ, MADSUITE_CACHE=root)
     out = subprocess.run([sys.executable, "-c", MODEL + textwrap.dedent(body)],
                          env=env, capture_output=True, text=True, timeout=timeout)
     assert out.returncode == 0, (out.stdout[-1000:], out.stderr[-3000:])
@@ -92,7 +92,7 @@ def primed(tmp_path_factory):
     root = str(tmp_path_factory.mktemp("cache"))
     eager = _sub(f"""
         import json, sys
-        import examodels as exa
+        import madsuite as exa
         core, x, p = build(exa)
         m = exa.Model(core)                # miss: replay + compile + store
         assert type(m).__name__ == "Model", type(m).__name__
@@ -129,7 +129,7 @@ def test_hit_matches_the_eager_model_numerically(primed):
     compiled — identical arithmetic up to codegen reassociation."""
     got = _sub(f"""
         import json, sys
-        import examodels as exa
+        import madsuite as exa
         core, x, p = build(exa)
         m = exa.Model(core)
         assert type(m).__name__ == "CachedModel", type(m).__name__
@@ -150,7 +150,7 @@ def test_parameter_change_still_hits_and_is_live(primed):
     got = _sub(f"""
         import json, sys
         import numpy as np
-        import examodels as exa
+        import madsuite as exa
         core, x, p = build(exa)
         core._records[1]["values"] = np.full(6, 9.0)
         m = exa.Model(core)
@@ -195,7 +195,7 @@ def test_julia_process_falls_back_to_eager_without_recompiling(primed):
 def test_fresh_process_hits_solves_and_never_boots_julia(primed):
     got = _sub("""
         import json, sys
-        import examodels as exa
+        import madsuite as exa
         core, x, p = build(exa)
         m = exa.Model(core)
         assert "juliacall" not in sys.modules, "the hit path booted Julia"
@@ -228,7 +228,7 @@ RECIPE = textwrap.dedent("""
 
 
 def _rsub(body, root, timeout):
-    env = dict(os.environ, EXAMODELS_CACHE=root)
+    env = dict(os.environ, MADSUITE_CACHE=root)
     out = subprocess.run([sys.executable, "-c", RECIPE + textwrap.dedent(body)],
                          env=env, capture_output=True, text=True, timeout=timeout)
     assert out.returncode == 0, (out.stdout[-1000:], out.stderr[-3000:])
@@ -242,7 +242,7 @@ def primed_recipe(tmp_path_factory):
     root = str(tmp_path_factory.mktemp("rcache"))
     eager = _rsub("""
         import json, sys
-        import examodels as exa
+        import madsuite as exa
         core, x, p = build_recipe(exa)
         m = exa.Model(core, 8)             # miss: replay + compile + store
         assert type(m).__name__ == "Model", type(m).__name__
@@ -259,7 +259,7 @@ def primed_recipe(tmp_path_factory):
 def test_recipe_hit_at_the_compiled_size(primed_recipe):
     got = _rsub("""
         import json, sys
-        import examodels as exa
+        import madsuite as exa
         core, x, p = build_recipe(exa)
         m = exa.Model(core, 8)
         assert type(m).__name__ == "CachedModel", type(m).__name__
@@ -277,7 +277,7 @@ def test_recipe_hit_at_a_different_size(primed_recipe):
     VALUE is per-instance, so one compiled entry serves every size."""
     got = _rsub("""
         import json, sys
-        import examodels as exa
+        import madsuite as exa
         core, x, p = build_recipe(exa)
         m = exa.Model(core, 20)            # never compiled at 20
         assert type(m).__name__ == "CachedModel", type(m).__name__

@@ -1,7 +1,7 @@
 """The single point at which juliacall is touched — and it is touched lazily.
 
 Importing this module does NOT start Julia; the runtime boots on first use, so
-`import examodels` stays instant and users never see a startup stall they cannot
+`import madsuite` stays instant and users never see a startup stall they cannot
 explain. Nothing outside this module imports juliacall.
 """
 import json
@@ -92,7 +92,7 @@ def _check(jl):
             f"the ExaModels backend in this environment (version {version}) is not the "
             f"one this package supports (declared: {want if want else 'a pinned revision'})"
             + (f"; missing: {', '.join(missing)}" if missing else "")
-            + ". Reinstall the backend, or upgrade `examodels`."
+            + ". Reinstall the backend, or upgrade `madsuite`."
         )
     return version
 
@@ -261,7 +261,7 @@ def _boot():
 def __getattr__(name):                     # PEP 562: lazy module attributes
     # Dunder probes (__path__, __all__, __wrapped__, ...) come from the import
     # machinery and from tooling; booting the backend for one of those would make
-    # `import examodels` pay the startup cost it is designed to defer.
+    # `import madsuite` pay the startup cost it is designed to defer.
     if name.startswith("__"):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     return getattr(_boot(), name)

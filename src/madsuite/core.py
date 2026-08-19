@@ -171,7 +171,7 @@ def _backend(spec):
         except Exception:                             # noqa: BLE001
             raise _b.ModelError(
                 f"the {spec!r} backend is not installed in this environment "
-                f"(needs {pkg}). Install it with: examodels.install_backend({spec!r})"
+                f"(needs {pkg}). Install it with: madsuite.install_backend({spec!r})"
             ) from None
         _loaded.add(spec)
     return _b.seval(ctor)
@@ -312,7 +312,7 @@ class Core:
 
         `start`, `lvar` and `uvar` are scalars or arrays of that shape.
 
-        >>> import examodels as exa
+        >>> import madsuite as exa
         >>> core = exa.Core()
         >>> x = core.add_var(3, start=1.0)
         >>> _ = core.add_obj(lambda i: (x[i] - 2.0) ** 2, over=range(3))
@@ -393,7 +393,7 @@ class Core:
         """A block of parameters — fixed values usable in expressions, changeable
         afterwards with `Model.set_parameters` without rebuilding.
 
-        >>> import examodels as exa
+        >>> import madsuite as exa
         >>> core = exa.Core()
         >>> x = core.add_var(2)
         >>> p = core.add_par([3.0, 4.0])

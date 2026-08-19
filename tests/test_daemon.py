@@ -16,17 +16,17 @@ import numpy as np
 import pytest
 from conftest import requires
 
-import examodels as exa
-from examodels import _wire
-from examodels._warm import DaemonModel, DaemonSolution, DispatchCore
-from examodels.core import Core as EagerCore
+import madsuite as exa
+from madsuite import _wire
+from madsuite._warm import DaemonModel, DaemonSolution, DispatchCore
+from madsuite.core import Core as EagerCore
 
 
 def _spawn(path, *extra):
     env = dict(os.environ)
-    env.pop("EXAMODELS_DAEMON", None)      # serve() sets its own guard
+    env.pop("MADSUITE_DAEMON", None)      # serve() sets its own guard
     proc = subprocess.Popen(
-        [sys.executable, "-m", "examodels.daemon", "serve", "--socket", path,
+        [sys.executable, "-m", "madsuite.daemon", "serve", "--socket", path,
          *extra],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for _ in range(100):
@@ -88,11 +88,11 @@ def _rosenbrock(n=12):
 
 @requires("ipopt")
 def test_the_daemon_serves_and_matches_the_in_process_answer(daemon, monkeypatch):
-    monkeypatch.setenv("EXAMODELS_DAEMON", "0")
+    monkeypatch.setenv("MADSUITE_DAEMON", "0")
     core0, x0 = _rosenbrock()
     ref = exa.Model(core0).solve(print_level=0, sb="yes")
 
-    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
     core, x = _rosenbrock()
     assert isinstance(core, DispatchCore), "a reachable daemon means recording"
     model = exa.Model(core)
@@ -109,7 +109,7 @@ def test_the_daemon_serves_and_matches_the_in_process_answer(daemon, monkeypatch
 
 @requires("ipopt")
 def test_parameter_overrides_ride_along(daemon, monkeypatch):
-    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
     core = exa.Core()
     x = core.add_var(3, start=0.0)
     p = core.add_par([1.0, 2.0, 3.0])
@@ -126,17 +126,17 @@ def test_parameter_overrides_ride_along(daemon, monkeypatch):
 def test_a_dying_daemon_never_loses_the_run(sockdir, monkeypatch):
     path = os.path.join(sockdir, "short-lived.sock")
     proc = _spawn(path)
-    monkeypatch.setenv("EXAMODELS_DAEMON", path)
+    monkeypatch.setenv("MADSUITE_DAEMON", path)
     core, x = _rosenbrock()
     model = exa.Model(core)
     assert isinstance(model, DaemonModel)
-    subprocess.run([sys.executable, "-m", "examodels.daemon", "stop",
+    subprocess.run([sys.executable, "-m", "madsuite.daemon", "stop",
                     "--socket", path], check=True, timeout=30)
     proc.wait(10)
     sol = model.solve(print_level=0, sb="yes")     # in-process fallback
     assert sol.success
     assert model._eager is not None, "the fallback model should now exist"
-    monkeypatch.setenv("EXAMODELS_DAEMON", "0")
+    monkeypatch.setenv("MADSUITE_DAEMON", "0")
     ref_core, ref_x = _rosenbrock()
     ref = exa.Model(ref_core).solve(print_level=0, sb="yes")
     assert sol.objective == pytest.approx(ref.objective, rel=1e-8)
@@ -145,7 +145,7 @@ def test_a_dying_daemon_never_loses_the_run(sockdir, monkeypatch):
 
 def test_an_oracle_converts_the_core_to_eager(daemon, monkeypatch):
     from test_advanced import unit_circle_oracle
-    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
     core = exa.Core()
     assert isinstance(core, DispatchCore)
     x = exa.add_var(core, 2, start=0.5)
@@ -158,7 +158,7 @@ def test_an_oracle_converts_the_core_to_eager(daemon, monkeypatch):
 
 
 def test_version_skew_disables_dispatch(daemon, monkeypatch):
-    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
     real = _wire.identity()
     monkeypatch.setattr(_wire, "identity",
                         lambda: {**real, "proto": real["proto"] + 1})
@@ -168,7 +168,7 @@ def test_version_skew_disables_dispatch(daemon, monkeypatch):
 
 def test_the_status_cli_reports(daemon):
     out = subprocess.run(
-        [sys.executable, "-m", "examodels.daemon", "status", "--socket", daemon],
+        [sys.executable, "-m", "madsuite.daemon", "status", "--socket", daemon],
         capture_output=True, text=True, timeout=30)
     assert out.returncode == 0
     assert "solves" in out.stdout
@@ -176,7 +176,7 @@ def test_the_status_cli_reports(daemon):
 
 def test_a_second_daemon_refuses_the_busy_socket(daemon):
     out = subprocess.run(
-        [sys.executable, "-m", "examodels.daemon", "serve", "--socket", daemon],
+        [sys.executable, "-m", "madsuite.daemon", "serve", "--socket", daemon],
         capture_output=True, text=True, timeout=30)
     assert out.returncode == 1
     assert "already serving" in out.stderr
@@ -186,7 +186,7 @@ def test_a_second_daemon_refuses_the_busy_socket(daemon):
 
 @requires("ipopt")
 def test_a_repeated_model_reuses_the_live_instance(daemon, monkeypatch):
-    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
     s0 = _stat(daemon)
     core1, x1 = _rosenbrock(9)
     m1 = exa.Model(core1)               # bound: the lease must outlive m2's build
@@ -203,7 +203,7 @@ def test_a_repeated_model_reuses_the_live_instance(daemon, monkeypatch):
 
 @requires("ipopt")
 def test_a_parameter_sweep_replays_once(daemon, monkeypatch):
-    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
     core = exa.Core()
     x = core.add_var(4, start=0.0)
     p = core.add_par([0.0] * 4)
@@ -229,7 +229,7 @@ def test_an_instance_hit_takes_the_records_own_parameter_values(daemon, monkeypa
     two records differing ONLY in add_par values share one instance — and a
     hit that trusted the instance's last values would give the second run
     the first run's answer."""
-    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
 
     def build(vals):
         core = exa.Core()
@@ -255,7 +255,7 @@ def test_eviction_rebuilds_and_stays_correct(sockdir, monkeypatch):
     path = os.path.join(sockdir, "tiny.sock")
     proc = _spawn(path, "--max-instances", "1")
     try:
-        monkeypatch.setenv("EXAMODELS_DAEMON", path)
+        monkeypatch.setenv("MADSUITE_DAEMON", path)
         core_a, _ = _rosenbrock(7)
         core_b, _ = _rosenbrock(8)
         m_a, m_b = exa.Model(core_a), exa.Model(core_b)
@@ -268,7 +268,7 @@ def test_eviction_rebuilds_and_stays_correct(sockdir, monkeypatch):
         assert s["replays"] == 5, "2 builds + 3 post-eviction rebuilds"
         assert a2.objective == pytest.approx(a1.objective, rel=1e-9)
     finally:
-        subprocess.run([sys.executable, "-m", "examodels.daemon", "stop",
+        subprocess.run([sys.executable, "-m", "madsuite.daemon", "stop",
                         "--socket", path], timeout=30)
         proc.wait(10)
 
@@ -281,8 +281,8 @@ def test_client_exit_destroys_its_instances(daemon, monkeypatch):
     the client process that asked for it. Only compilation caches stay."""
     code = (
         "import os\n"
-        f"os.environ['EXAMODELS_DAEMON'] = {daemon!r}\n"
-        "import examodels as exa\n"
+        f"os.environ['MADSUITE_DAEMON'] = {daemon!r}\n"
+        "import madsuite as exa\n"
         "core = exa.Core()\n"
         "x = core.add_var(5, start=0.0)\n"
         "core.add_obj(lambda i: (x[i] - 2.5) ** 2, over=range(5))\n"
@@ -308,14 +308,14 @@ def test_client_exit_destroys_its_instances(daemon, monkeypatch):
 
 @requires("ipopt")
 def test_a_shared_instance_survives_until_its_last_owner_leaves(daemon, monkeypatch):
-    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
     core1, _ = _rosenbrock(11)
     keeper = exa.Model(core1)            # this process holds a lease
     s0 = _stat(daemon)
     code = (
         "import os\n"
-        f"os.environ['EXAMODELS_DAEMON'] = {daemon!r}\n"
-        "import examodels as exa\n"
+        f"os.environ['MADSUITE_DAEMON'] = {daemon!r}\n"
+        "import madsuite as exa\n"
         "core = exa.Core()\n"
         "x = core.add_var(11, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(11)])\n"
         "core.add_obj(lambda i: 100 * (x[i - 1] ** 2 - x[i]) ** 2 + (x[i - 1] - 1) ** 2,\n"
@@ -342,8 +342,8 @@ def test_a_client_killed_mid_solve_leaves_a_healthy_daemon(daemon, monkeypatch):
     else notices."""
     code = (
         "import os\n"
-        f"os.environ['EXAMODELS_DAEMON'] = {daemon!r}\n"
-        "import examodels as exa\n"
+        f"os.environ['MADSUITE_DAEMON'] = {daemon!r}\n"
+        "import madsuite as exa\n"
         "n = 50_000\n"
         "core = exa.Core()\n"
         "x = core.add_var(n, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(n)])\n"
@@ -371,7 +371,7 @@ def test_a_client_killed_mid_solve_leaves_a_healthy_daemon(daemon, monkeypatch):
     assert s1["current"] is None, "the daemon is still stuck on the orphan solve"
     assert s1["instances"] == s0["instances"], "the dead client's lease survived"
     # and it still serves: a fresh solve straight through
-    monkeypatch.setenv("EXAMODELS_DAEMON", daemon)
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
     core, x = _rosenbrock(10)
     assert exa.Model(core).solve(print_level=0, sb="yes").success
 
@@ -382,8 +382,8 @@ def test_idle_exit_stops_a_daemon_nobody_uses(sockdir):
     proc = _spawn(path, "--idle-exit", "0.03")      # 1.8 s
     code = (
         "import os\n"
-        f"os.environ['EXAMODELS_DAEMON'] = {path!r}\n"
-        "import examodels as exa\n"
+        f"os.environ['MADSUITE_DAEMON'] = {path!r}\n"
+        "import madsuite as exa\n"
         "core = exa.Core()\n"
         "x = core.add_var(4, start=0.0)\n"
         "core.add_obj(lambda i: (x[i] - 1.0) ** 2, over=range(4))\n"

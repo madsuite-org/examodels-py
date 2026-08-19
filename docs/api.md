@@ -3,56 +3,56 @@
 ## Building a model
 
 ```{eval-rst}
-.. autoclass:: examodels.Core
+.. autoclass:: madsuite.Core
    :members:
 ```
 
 ## The built model
 
 ```{eval-rst}
-.. autoclass:: examodels.Model
+.. autoclass:: madsuite.Model
    :members:
 
-.. autoclass:: examodels.Solution
+.. autoclass:: madsuite.Solution
    :members:
 ```
 
 ## Handles
 
 ```{eval-rst}
-.. autoclass:: examodels.Block
+.. autoclass:: madsuite.Block
    :members:
 
-.. autoclass:: examodels.Constraint
+.. autoclass:: madsuite.Constraint
    :members:
 
-.. autoclass:: examodels.Expression
+.. autoclass:: madsuite.Expression
    :members:
 
-.. autoclass:: examodels.Node
+.. autoclass:: madsuite.Node
    :members:
 ```
 
 ## Index sets
 
 ```{eval-rst}
-.. autofunction:: examodels.product
+.. autofunction:: madsuite.product
 ```
 
 ## Recipes
 
 ```{eval-rst}
-.. autofunction:: examodels.recipe
-.. autofunction:: examodels.srange
+.. autofunction:: madsuite.recipe
+.. autofunction:: madsuite.srange
 ```
 
 ## The compiler and the model cache
 
 ```{eval-rst}
-.. autofunction:: examodels.compile_library
-.. autofunction:: examodels.compiler_available
-.. autofunction:: examodels.install_compiler
-.. autoclass:: examodels.CompiledLibrary
+.. autofunction:: madsuite.compile_library
+.. autofunction:: madsuite.compiler_available
+.. autofunction:: madsuite.install_compiler
+.. autoclass:: madsuite.CompiledLibrary
 ```
 
 `Core(cache=True)` needs no API of its own — recording, lookup, compile and
@@ -61,39 +61,39 @@ load all hang off `Core` and `Model`; see [](cache.md).
 ## Solvers and backends
 
 ```{eval-rst}
-.. autofunction:: examodels.solve
-.. autofunction:: examodels.available_solvers
-.. autofunction:: examodels.install_solver
-.. autofunction:: examodels.backends
-.. autofunction:: examodels.install_backend
+.. autofunction:: madsuite.solve
+.. autofunction:: madsuite.available_solvers
+.. autofunction:: madsuite.install_solver
+.. autofunction:: madsuite.backends
+.. autofunction:: madsuite.install_backend
 ```
 
 ## Oracles, two-stage models and wrappers
 
 ```{eval-rst}
-.. autofunction:: examodels.VectorNonlinearOracle
-.. autofunction:: examodels.ScalarNonlinearOracle
-.. autofunction:: examodels.has_matfree_jac
-.. autofunction:: examodels.has_matfree_hess
-.. autofunction:: examodels.TwoStageCore
-.. autofunction:: examodels.get_nscen
-.. autofunction:: examodels.get_var_scen
-.. autofunction:: examodels.get_con_scen
-.. autofunction:: examodels.new_tag
-.. autofunction:: examodels.WrapperNLPModel
-.. autofunction:: examodels.TimedNLPModel
-.. autofunction:: examodels.CompressedNLPModel
+.. autofunction:: madsuite.VectorNonlinearOracle
+.. autofunction:: madsuite.ScalarNonlinearOracle
+.. autofunction:: madsuite.has_matfree_jac
+.. autofunction:: madsuite.has_matfree_hess
+.. autofunction:: madsuite.TwoStageCore
+.. autofunction:: madsuite.get_nscen
+.. autofunction:: madsuite.get_var_scen
+.. autofunction:: madsuite.get_con_scen
+.. autofunction:: madsuite.new_tag
+.. autofunction:: madsuite.WrapperNLPModel
+.. autofunction:: madsuite.TimedNLPModel
+.. autofunction:: madsuite.CompressedNLPModel
 ```
 
 ## CuPy interchange
 
 ```{eval-rst}
-.. autofunction:: examodels.as_cupy
-.. autofunction:: examodels.from_cupy
+.. autofunction:: madsuite.as_cupy
+.. autofunction:: madsuite.from_cupy
 ```
 
 ## Elementwise functions
 
 `sin`, `cos`, `exp`, `log`, … are generated from the backend's own registry of supported
-operators, so `dir(examodels)` is the authoritative list. Use these rather than `math` or
+operators, so `dir(madsuite)` is the authoritative list. Use these rather than `math` or
 `numpy` equivalents inside a traced expression.

@@ -6,7 +6,7 @@ message: >-
   If you use this software, please cite it using the
   metadata from this file.
 title: >-
-  examodels: Python interface to ExaModels.jl
+  madsuite: Python interface to ExaModels.jl
 type: software
 authors:
   - affiliation: >-
@@ -16,7 +16,7 @@ authors:
     given-names: Sungho
     email: sushin@mit.edu
 license: MIT
-repository-code: 'https://github.com/madsuite-org/examodels-py'
+repository-code: 'https://github.com/madsuite-org/madsuite-py'
 version: 0.1.0
 keywords:
   - Nonlinear Optimization

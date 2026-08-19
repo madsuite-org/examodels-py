@@ -11,11 +11,11 @@ import numpy as np
 import pytest
 from conftest import requires
 
-import examodels as exa
-from examodels import _bridge as _b
-from examodels import core as core_mod
-from examodels import ops
-from examodels.recipe import is_placeholder
+import madsuite as exa
+from madsuite import _bridge as _b
+from madsuite import core as core_mod
+from madsuite import ops
+from madsuite.recipe import is_placeholder
 
 
 # ---------------------------------------------------------------- backends ----

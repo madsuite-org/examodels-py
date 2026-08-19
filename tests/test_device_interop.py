@@ -9,9 +9,9 @@ is covered by `test_cupy.py` where hardware exists.
 import numpy as np
 import pytest
 
-import examodels as exa
-from examodels import _bridge as _b
-from examodels.advanced import _CudaView, from_cupy
+import madsuite as exa
+from madsuite import _bridge as _b
+from madsuite.advanced import _CudaView, from_cupy
 
 
 class FakeDeviceArray:

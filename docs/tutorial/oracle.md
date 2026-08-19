@@ -5,7 +5,7 @@ useful when the residual comes from a simulation, an external solver, or code th
 expressible as an algebraic expression.
 
 ```python
-import examodels as exa
+import madsuite as exa
 
 core = exa.Core()
 x = exa.add_var(core, 2, start=0.5)

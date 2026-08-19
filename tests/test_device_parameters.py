@@ -10,7 +10,7 @@ tests in `test_device_interop.py`.
 import numpy as np
 import pytest
 
-import examodels as exa
+import madsuite as exa
 
 pytestmark = pytest.mark.skipif(
     not __import__("shutil").which("nvidia-smi"), reason="no GPU on this machine")

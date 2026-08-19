@@ -1,6 +1,6 @@
-"""examodels — Python interface to ExaModels.jl.
+"""madsuite — Python interface to ExaModels.jl.
 
-    import examodels as exa
+    import madsuite as exa
 
     core = exa.Core()
     x = core.add_var(N, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(N)])

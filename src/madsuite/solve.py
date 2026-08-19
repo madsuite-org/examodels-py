@@ -44,7 +44,7 @@ def solve(model, solver=None, **options):
         model.solve(print_level=0, sb="yes")           # a quiet Ipopt
         model.solve(solver="madnlp", tol=1e-10, max_iter=500)
 
-    >>> import examodels as exa
+    >>> import madsuite as exa
     >>> core = exa.Core()
     >>> x = core.add_var(3, start=0.0)
     >>> _ = core.add_obj(lambda i: (x[i] - 2.0) ** 2, over=range(3))
@@ -80,7 +80,7 @@ def _prepared(model, solver, options):
         except Exception:                                    # noqa: BLE001
             raise _b.ModelError(
                 f"the {solver!r} solver is not installed in this environment. "
-                f"Install it with: examodels.install_solver({solver!r})") from None
+                f"Install it with: madsuite.install_solver({solver!r})") from None
         _loaded.add(solver)
 
     # The one thing still chosen for the caller, because it is not a preference:
@@ -118,5 +118,5 @@ def _device_linear_solver():
     raise _b.ModelError(
         "no device linear solver is available: MadNLPGPU is installed but none of "
         f"{', '.join(DEVICE_LINEAR_SOLVERS)} is usable. Reinstall the stack — "
-        f"examodels.install_backend(\"cuda\") — and restart Python: the "
+        f"madsuite.install_backend(\"cuda\") — and restart Python: the "
         f"environment cannot change under a running Julia.")

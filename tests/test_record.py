@@ -11,7 +11,7 @@ import textwrap
 import numpy as np
 import pytest
 
-import examodels as exa
+import madsuite as exa
 
 N = 10
 
@@ -49,7 +49,7 @@ def test_recording_never_loads_julia():
     without juliacall ever entering sys.modules."""
     code = MODEL_SRC + textwrap.dedent("""
         import sys
-        import examodels as exa
+        import madsuite as exa
         core = build(exa, cache=True)
         fp, dd = core.fingerprint()
         assert len(fp) == 64 and len(dd) == 64
@@ -95,8 +95,8 @@ def test_replayed_tree_lowers_to_the_identical_backend_type():
     `same_structure` compares the types themselves; `julia_type` strings are
     abbreviated and would pass for almost any pair.
     """
-    from examodels._record import _render
-    from examodels.testing import same_structure
+    from madsuite._record import _render
+    from madsuite.testing import same_structure
     eager = exa.Core()
     x = eager.add_var(N)
     fns = [
@@ -125,7 +125,7 @@ def test_literal_values_are_data_not_structure():
     """A changed coefficient must not change the backend expression type —
     that is what licenses keeping literal VALUES in the data digest while the
     fingerprint keeps only their numeric type."""
-    from examodels.testing import same_structure
+    from madsuite.testing import same_structure
     core = exa.Core()
     x = core.add_var(N)
     a = exa.trace(lambda i: 100 * (x[i] ** 2 - 1) ** 2)
@@ -237,7 +237,7 @@ def test_the_recorder_itself_is_backend_neutral():
     """The CPU-only refusal belongs to cache= (Core.__new__); the warm
     session records device models by constructing the recorder directly,
     which must accept any backend and fingerprint without Julia."""
-    from examodels._record import RecordingCore
+    from madsuite._record import RecordingCore
     rec = RecordingCore(backend="cuda", cache=None)
     x = rec.add_var(3, start=0.0)
     rec.add_obj(lambda i: (x[i] - 1.0) ** 2, over=range(3))
@@ -256,7 +256,7 @@ def test_math_functions_resolve_without_julia_when_julia_is_down():
     import sys
     code = """
 import sys
-import examodels as exa
+import madsuite as exa
 f = exa.sin
 assert not any("juliacall" in m for m in sys.modules), "resolution booted Julia"
 core = exa.Core(cache=True)

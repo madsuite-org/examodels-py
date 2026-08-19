@@ -3,10 +3,10 @@ import json
 import pathlib
 import sys
 
-import examodels
-from examodels import _bridge as _b
+import madsuite
+from madsuite import _bridge as _b
 
-ROOT = pathlib.Path(examodels.__file__).parent
+ROOT = pathlib.Path(madsuite.__file__).parent
 
 
 def test_declared_backend_range_is_the_one_installed():
@@ -85,7 +85,7 @@ def test_python_dependencies_are_only_what_we_declare():
         "argparse", "pickle", "queue", "socket", "struct", "threading",
     }
     allowed = required | optional | {"juliapkg"}
-    third_party = imported - stdlib - {"examodels"}
+    third_party = imported - stdlib - {"madsuite"}
     assert third_party <= allowed, \
         f"undeclared third-party imports: {sorted(third_party - allowed)}"
 
@@ -163,8 +163,8 @@ def test_backend_stack_and_solver_tables_agree():
     """MadNLP's UUID lives in two tables (the solver registry and the cuda
     install stack); if they drift, install_backend and install_solver would
     resolve different packages under one name."""
-    from examodels.core import _BACKEND_STACKS
-    from examodels.solve import SOLVERS
+    from madsuite.core import _BACKEND_STACKS
+    from madsuite.solve import SOLVERS
     stack = dict(_BACKEND_STACKS["cuda"])
     assert stack["MadNLP"] == SOLVERS["madnlp"][1]
     for name, uuid in _BACKEND_STACKS["cuda"]:

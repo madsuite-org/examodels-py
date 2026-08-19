@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-import examodels as exa
+import madsuite as exa
 
 cupy = pytest.importorskip("cupy")
 pytestmark = pytest.mark.skipif(
@@ -18,7 +18,7 @@ def device_model(n=8):
 
 def test_a_cupy_view_shares_the_backend_pointer():
     """Not merely equal values — the same address."""
-    from examodels import _bridge as _b
+    from madsuite import _bridge as _b
     model, x = device_model()
     arr = _b.seval("m -> m.meta.x0")(model._jl)
     view = exa.as_cupy(arr)
@@ -28,7 +28,7 @@ def test_a_cupy_view_shares_the_backend_pointer():
 
 
 def test_writing_through_the_view_changes_the_model():
-    from examodels import _bridge as _b
+    from madsuite import _bridge as _b
     model, x = device_model()
     exa.as_cupy(_b.seval("m -> m.meta.x0")(model._jl))[:] = 7.0
     np.testing.assert_allclose(model.get_start(x), 7.0)
@@ -60,7 +60,7 @@ def test_a_host_array_is_refused_by_as_cupy():
     core = exa.Core()
     x = exa.add_var(core, 3, start=1.0)
     exa.add_obj(core, lambda i: x[i]**2, over=range(3))
-    from examodels import _bridge as _b
+    from madsuite import _bridge as _b
     arr = _b.seval("m -> m.meta.x0")(exa.Model(core)._jl)
     with pytest.raises(TypeError, match="host memory"):
         exa.as_cupy(arr)
