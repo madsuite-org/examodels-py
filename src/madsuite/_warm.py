@@ -248,6 +248,14 @@ class DaemonModel(Model):
                     reply = _recv_streaming(sock)
             except (OSError, ConnectionError):
                 reply = None
+            except KeyboardInterrupt:
+                # C-c mid-solve: closing the lease IS the cancel — the
+                # daemon sees EOF and abandons the solve. The socket is
+                # mid-protocol garbage now; drop it so a later solve (a
+                # REPL user catching the interrupt) builds a fresh lease.
+                sock.close()
+                self.__dict__["_sock"] = None
+                raise
             if reply is None:       # lease died mid-flight: retry once fresh
                 sock.close()
                 self.__dict__["_sock"] = None
