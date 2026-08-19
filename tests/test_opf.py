@@ -84,3 +84,25 @@ def test_a_generator_over_a_table_recovers_it():
     m = exa.Model(core)
     assert m.nvar == 4
     assert m.objective([1.0] * 4) == pytest.approx(0 + 1 + 2 + 3)
+
+
+@pglib
+def test_a_second_case_of_a_warm_family_builds_without_compiling():
+    """First build a small case (paying the family's one-time Julia
+    specialization), then a second case of the same family: it must build
+    with NO compilation pause. The regression this pins: per-element
+    dynamic dispatch in the table path made a fully-warm 9241-bus build
+    take 24 s (node._table now ships whole columns across the boundary)."""
+    import time
+
+    import matpower
+    from ac_opf import ac_opf
+
+    import madsuite as exa
+
+    exa.Model(ac_opf(matpower.read(str(PGLIB / "pglib_opf_case14_ieee.m")))[0])
+    t = time.perf_counter()
+    m = exa.Model(ac_opf(matpower.read(str(PGLIB / "pglib_opf_case118_ieee.m")))[0])
+    dt = time.perf_counter() - t
+    assert m.nvar == 1088
+    assert dt < 5.0, f"a warm-family build took {dt:.1f}s — compilation is leaking"

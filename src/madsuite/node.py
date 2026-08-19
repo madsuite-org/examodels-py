@@ -317,9 +317,16 @@ def _columns(rows, index=()):
     return fields, cols, n
 
 def _table(rows, index=()):
-    """A sequence of named rows -> the backend's table of named, typed fields."""
+    """A sequence of named rows -> the backend's table of named, typed fields.
+
+    Columns cross the boundary as whole arrays BEFORE the row loop: element
+    access on a Python-wrapped column dynamic-dispatches per value, and the
+    row builder touches every value of every column — measured at 24 s for a
+    9 241-bus OPF case (fully warm) against ~1 s with the bulk conversion."""
     fields, cols, n = _columns(rows, index)
-    return _b.mkrecords(fields, cols), n
+    jcols = tuple((_b.vec_i64 if c.dtype.kind == "i" else _b.vec_f64)(c)
+                  for c in cols)
+    return _b.mkrecords(fields, jcols), n
 
 def is_table(over):
     """Is this a table of named rows?
