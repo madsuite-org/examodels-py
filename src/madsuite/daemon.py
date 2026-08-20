@@ -186,13 +186,19 @@ def _gil_free_solve(model, solver, options):
 
 
 def _reclaim():
-    """Best-effort device-memory release after an eviction; refined in the
-    memory/lifetime phase.  Only touches CUDA when it is already loaded."""
+    """Best-effort memory release after a destroy or eviction.
+
+    GIL-free like the solves, and for the same reason: a full GC over a
+    multi-GB heap plus a device reclaim is a long single Julia call, and
+    holding the GIL through it froze the handshake threads — a client
+    arriving in that window timed out and silently paid a five-minute
+    in-process boot (observed: 'served by daemon: False' on a repeat).
+    Only touches CUDA when it is already loaded."""
     with contextlib.suppress(Exception):
         from . import _bridge as _b
-        _b.seval("GC.gc()")
+        _b.seval("PythonCall.GIL.@unlock GC.gc()")
         if _b.seval("isdefined(Main, :CUDA)"):
-            _b.seval("Main.CUDA.reclaim()")
+            _b.seval("PythonCall.GIL.@unlock Main.CUDA.reclaim()")
 
 
 def _solve(payload, instances, cap, state, build_only=False):
@@ -235,7 +241,61 @@ def _solve(payload, instances, cap, state, build_only=False):
             "zL": host("multipliers_L"), "zU": host("multipliers_U")}
 
 
-def _work(jobs, state, stop, cap, idle_exit=None):
+class _OutputRouter:
+    """Owns fd 1 AND fd 2 for the daemon's lifetime, routing them per job —
+    a daemon run should feel like the client ran the solver directly, and
+    that includes warnings on stderr.
+
+    Installed BEFORE Julia can boot, permanently — that is the whole point:
+    Julia's libuv wraps and duplicates whatever descriptors it sees at boot,
+    and every Julia print afterwards writes to those private duplicates,
+    immune to any later fd swap. (A per-solve dup2 streamed Ipopt's C-level
+    output and silently missed MadNLP's — the test used Ipopt.) With pipes
+    standing from startup, Julia captures the pipes, and pump threads
+    deliver chunks to the active job's client — or to the daemon's real
+    terminal when nothing is running."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._sink = None
+        for fd, key in ((1, "out"), (2, "err")):
+            r, w = os.pipe()
+            orig = os.dup(fd)
+            os.dup2(w, fd)
+            os.close(w)
+            threading.Thread(target=self._pump, args=(r, key, orig),
+                             daemon=True).start()
+
+    def _pump(self, r, key, orig):
+        while True:
+            chunk = os.read(r, 4096)
+            if not chunk:
+                return
+            with self._lock:
+                sink = self._sink
+            if sink is not None:
+                sink.put({"stream": True,
+                          key: chunk.decode(errors="replace")})
+            else:
+                with contextlib.suppress(OSError):
+                    os.write(orig, chunk)
+
+    @contextlib.contextmanager
+    def to(self, reply):
+        with self._lock:
+            self._sink = reply
+        try:
+            yield
+        finally:
+            # Julia's libuv flushes line-wise but asynchronously: give the
+            # tail of the log a beat to cross before the final frame.
+            time.sleep(0.05)
+            with self._lock:
+                self._sink = None
+
+
+def _work(jobs, state, stop, cap, idle_exit=None, reassert=None,
+          router=None):
     """The main-thread loop: everything that touches Julia happens here.
     The instance table lives here too — main-thread-confined, like Julia.
 
@@ -265,8 +325,9 @@ def _work(jobs, state, stop, cap, idle_exit=None):
             continue
         with state.job(payload.get("label") or "solve"):
             try:
-                result = _solve(payload, instances, cap, state,
-                                build_only=(kind == "BUILD"))
+                with router.to(reply):
+                    result = _solve(payload, instances, cap, state,
+                                    build_only=(kind == "BUILD"))
                 if kind == "SOLVE" and result.get("ok"):
                     # neither a build nor a need_record round is a solve
                     with state._lock:
@@ -278,6 +339,10 @@ def _work(jobs, state, stop, cap, idle_exit=None):
                     "type": type(e).__name__, "message": str(e)}}
         reply.put(result)
         _refresh_mem(state)
+        if reassert is not None:
+            # Julia (booted by the job we just ran) installs its own SIGINT
+            # handling; take C-c back so closing the daemon stays ours.
+            reassert()
 
 
 def _refresh_mem(state):
@@ -326,7 +391,15 @@ def _client(conn, jobs, state, stop):
                     state.queued += 1
                 reply = queue.Queue()
                 jobs.put((op, req, reply))
-                result = reply.get()
+                while True:
+                    result = reply.get()
+                    if result.get("stream"):
+                        # solver output for the client's terminal; if the
+                        # client vanished, keep draining to the final frame
+                        with contextlib.suppress(OSError, ConnectionError):
+                            _wire.send(conn, result)
+                        continue
+                    break
                 if result.get("leased") and req.get("key") is not None:
                     owned.append(req["key"])
                 _wire.send(conn, result)
@@ -351,6 +424,41 @@ def serve(path=None, max_instances=32, idle_exit=None):
     # The daemon must never dispatch to a daemon: replay constructs Core()s,
     # and dispatch here would mean connecting to ourselves.
     os.environ["MADSUITE_DAEMON"] = "0"
+
+    # C-c must work from EVERY launch context: a shell-backgrounded child
+    # inherits SIGINT as ignored (and Python then never installs a handler),
+    # and once a solve boots Julia, Julia's runtime takes the signal for
+    # itself.  So the daemon owns SIGINT explicitly, BEFORE the socket
+    # exists (the socket appearing is the outside world's ready signal) —
+    # and _work reasserts the handler after every job, taking it back from
+    # Julia each time.
+    import signal as _signal
+
+    stop = threading.Event()
+    presses = {"n": 0}
+
+    def _on_int(_sig, _frame):
+        presses["n"] += 1
+        if presses["n"] == 1:
+            stop.set()
+            print("\nmadsuite: closing (finishing any running solve; "
+                  "C-c again to force)", flush=True)
+        else:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            os._exit(130)
+
+    def _own_sigint():
+        # Handler AND mask: a parent that had Julia loaded blocks SIGINT at
+        # the pthread level, and a blocked mask survives fork+exec — a
+        # handler alone would never be called in a daemon spawned from such
+        # a process (found the hard way: pytest boots Julia at collection).
+        _signal.pthread_sigmask(_signal.SIG_UNBLOCK,
+                                {_signal.SIGINT, _signal.SIGTERM})
+        _signal.signal(_signal.SIGINT, _on_int)
+        _signal.signal(_signal.SIGTERM, _on_int)
+
+    _own_sigint()
     # A raw connect, not a handshake: a live daemon of any version keeps its
     # socket; only a socket nothing is listening on is stale.
     probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -371,12 +479,15 @@ def serve(path=None, max_instances=32, idle_exit=None):
 
     state = _State()
     jobs = queue.Queue()
-    stop = threading.Event()
+
     threading.Thread(target=_accept, args=(listener, jobs, state, stop),
                      daemon=True).start()
+    # fd 1 must be ours before Julia exists; see _StdoutRouter.
+    router = _OutputRouter()
     print(f"madsuite: warm session on {path} (C-c to close)", flush=True)
     try:
-        _work(jobs, state, stop, max_instances, idle_exit)
+        _work(jobs, state, stop, max_instances, idle_exit,
+              reassert=_own_sigint, router=router)
     except KeyboardInterrupt:
         print("\nmadsuite: closing")
     finally:

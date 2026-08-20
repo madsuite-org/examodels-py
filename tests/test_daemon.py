@@ -399,3 +399,110 @@ def test_idle_exit_stops_a_daemon_nobody_uses(sockdir):
         raise AssertionError("idle daemon never exited") from None
     assert rc == 0
     assert not os.path.exists(path), "the socket must be cleaned up on exit"
+
+
+@requires("ipopt")
+def test_solver_output_streams_to_the_client_terminal(daemon, monkeypatch, capsys):
+    """The iteration log a solve prints lands in the CLIENT's stdout, as it
+    would for an eager solve — not in the daemon's terminal."""
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
+    core, x = _rosenbrock(8)
+    model = exa.Model(core)
+    sol = model.solve()                      # ipopt's default, chatty output
+    assert sol.success
+    out = capsys.readouterr().out
+    assert "Ipopt" in out or "iter" in out, \
+        f"no solver log reached the client (got {len(out)} bytes)"
+    assert "EXIT" in out, "the solver's exit line should stream too"
+
+
+# ---- C-c reliability ---------------------------------------------------------
+
+def _sigint_and_wait(proc, timeout=15):
+    import signal as _signal
+    proc.send_signal(_signal.SIGINT)
+    try:
+        return proc.wait(timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return None
+
+
+def test_ctrl_c_closes_an_idle_daemon(sockdir):
+    path = os.path.join(sockdir, "d.sock")
+    proc = _spawn(path)
+    rc = _sigint_and_wait(proc)
+    assert rc is not None, "C-c did not stop an idle daemon"
+    assert not os.path.exists(path), "the socket must be cleaned up"
+
+
+@requires("ipopt")
+def test_ctrl_c_still_works_after_julia_boots(sockdir, monkeypatch):
+    """The one that goes stale silently: once a solve boots Julia, Julia's
+    signal handlers own SIGINT unless the daemon takes it back — and a
+    warm daemon that C-c cannot close is exactly the daemon someone is
+    actually running."""
+    path = os.path.join(sockdir, "d.sock")
+    proc = _spawn(path)
+    monkeypatch.setenv("MADSUITE_DAEMON", path)
+    core, _x = _rosenbrock(6)
+    assert exa.Model(core).solve(print_level=0, sb="yes").success
+    rc = _sigint_and_wait(proc)
+    assert rc is not None, "C-c did not stop the daemon after Julia booted"
+    assert not os.path.exists(path), "the socket must be cleaned up"
+
+
+@requires("ipopt")
+def test_ctrl_c_mid_solve_finishes_then_closes(sockdir, monkeypatch):
+    """Mid-solve, C-c cannot preempt the solver (documented); it must take
+    effect the moment the solve completes — the client still gets its
+    answer, and the daemon then exits."""
+    path = os.path.join(sockdir, "d.sock")
+    proc = _spawn(path)
+    monkeypatch.setenv("MADSUITE_DAEMON", path)
+    core, _x = _rosenbrock(6)
+    exa.Model(core).solve(print_level=0, sb="yes")   # boot Julia first
+    code = (
+        "import os\n"
+        f"os.environ['MADSUITE_DAEMON'] = {path!r}\n"
+        "import madsuite as exa\n"
+        "n = 40_000\n"
+        "core = exa.Core()\n"
+        "x = core.add_var(n, start=[-1.2 if i % 2 == 0 else 1.0 for i in range(n)])\n"
+        "core.add_obj(lambda i: 100 * (x[i - 1] ** 2 - x[i]) ** 2"
+        " + (x[i - 1] - 1) ** 2, over=range(1, n))\n"
+        "m = exa.Model(core)\n"
+        "print('BUILT', flush=True)\n"
+        "s = m.solve(print_level=0, sb='yes', max_iter=200)\n"
+        "print('STATUS', s.status, flush=True)\n"
+    )
+    client = subprocess.Popen([sys.executable, "-c", code],
+                              stdout=subprocess.PIPE, text=True)
+    assert "BUILT" in client.stdout.readline()
+    time.sleep(1.0)                     # the solve is airborne
+    import signal as _signal
+    proc.send_signal(_signal.SIGINT)    # C-c the DAEMON mid-solve
+    out, _ = client.communicate(timeout=180)
+    assert "STATUS" in out, f"the in-flight client lost its solve: {out!r}"
+    try:
+        rc = proc.wait(30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        rc = None
+    assert rc is not None, "the daemon did not exit once the solve finished"
+    assert not os.path.exists(path)
+
+
+@requires("madnlp")
+def test_julia_solver_output_streams_too(daemon, monkeypatch, capsys):
+    """MadNLP prints from Julia, whose libuv captures stdout at boot — the
+    original per-solve redirect streamed only C-level (Ipopt) output and
+    silently missed this. The lifetime router must catch both."""
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
+    core, _x = _rosenbrock(8)
+    sol = exa.Model(core).solve(solver="madnlp")      # chatty by default
+    assert sol.success
+    out = capsys.readouterr().out
+    assert "MadNLP" in out or "iter" in out, \
+        f"no MadNLP log reached the client (got {len(out)} bytes)"
+    assert "EXIT" in out

@@ -41,10 +41,12 @@ def dispatching():
     Probed per `Core(...)`: one connect + handshake against a local socket,
     microseconds when absent (ENOENT) and milliseconds when present — and
     never cached, so a daemon started or stopped between two cores in one
-    process is seen."""
+    process is seen. The generous timeout only ever costs anything when a
+    daemon exists but is busy — and then eagerly giving up is the expensive
+    choice, not the wait."""
     if _suspended.get():
         return False
-    sock = _wire.connect(_wire.socket_path(), timeout=2.0)
+    sock = _wire.connect(_wire.socket_path(), timeout=10.0)
     if sock is None:
         return False
     sock.close()
@@ -137,16 +139,19 @@ def _build_lease(record, key, args, label, raise_errors=False):
     the instance.  A genuine model error during the daemon-side build is
     raised when `raise_errors` (eager parity at `Model(core)`); transport
     failures are always just None — the caller falls back in-process."""
-    sock = _wire.connect(_wire.socket_path(), timeout=5.0)
+    # Patient on purpose: a daemon busy replaying someone's model answers
+    # slowly, and giving up here costs the client a minutes-long in-process
+    # boot — seconds of waiting is the far cheaper side of that bet.
+    sock = _wire.connect(_wire.socket_path(), timeout=15.0)
     if sock is None:
         return None
     base = {"op": "BUILD", "label": label, "key": key, "args": args}
     try:
         _wire.send(sock, {**base, "record": None})
-        reply = _wire.recv(sock)
+        reply = _recv_streaming(sock)      # a build streams too (boot, replay)
         if reply is not None and reply.get("need_record"):
             _wire.send(sock, {**base, "record": record})
-            reply = _wire.recv(sock)
+            reply = _recv_streaming(sock)
     except (OSError, ConnectionError):
         reply = None
     if reply is None or not reply.get("ok"):
@@ -155,6 +160,22 @@ def _build_lease(record, key, args, label, raise_errors=False):
             raise _mapped(reply["error"])
         return None
     return sock
+
+
+def _recv_streaming(sock):
+    """The final reply, mirroring solver output as it arrives — stdout and
+    stderr both, so a daemon run reads exactly like running it directly."""
+    import sys
+    while True:
+        reply = _wire.recv(sock)
+        if reply is None or not reply.get("stream"):
+            return reply
+        if reply.get("out"):
+            sys.stdout.write(reply["out"])
+            sys.stdout.flush()
+        if reply.get("err"):
+            sys.stderr.write(reply["err"])
+            sys.stderr.flush()
 
 
 def _mapped(err):
@@ -225,12 +246,20 @@ class DaemonModel(Model):
                 self.__dict__["_sock"] = sock
             try:
                 _wire.send(sock, {**base, "record": None})
-                reply = _wire.recv(sock)
+                reply = _recv_streaming(sock)
                 if reply is not None and reply.get("need_record"):
                     _wire.send(sock, {**base, "record": self._record})
-                    reply = _wire.recv(sock)
+                    reply = _recv_streaming(sock)
             except (OSError, ConnectionError):
                 reply = None
+            except KeyboardInterrupt:
+                # C-c mid-solve: closing the lease IS the cancel — the
+                # daemon sees EOF and abandons the solve. The socket is
+                # mid-protocol garbage now; drop it so a later solve (a
+                # REPL user catching the interrupt) builds a fresh lease.
+                sock.close()
+                self.__dict__["_sock"] = None
+                raise
             if reply is None:       # lease died mid-flight: retry once fresh
                 sock.close()
                 self.__dict__["_sock"] = None
