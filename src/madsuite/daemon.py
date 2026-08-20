@@ -241,41 +241,61 @@ def _solve(payload, instances, cap, state, build_only=False):
             "zL": host("multipliers_L"), "zU": host("multipliers_U")}
 
 
-@contextlib.contextmanager
-def _stdout_to(reply):
-    """Redirect this process's fd 1 into stream frames on `reply`.
+class _OutputRouter:
+    """Owns fd 1 AND fd 2 for the daemon's lifetime, routing them per job —
+    a daemon run should feel like the client ran the solver directly, and
+    that includes warnings on stderr.
 
-    The solver's iteration log is written by Julia straight to fd 1 — the
-    daemon's terminal — while the person who asked is watching a different
-    one. During a solve, fd 1 becomes a pipe; a pump thread turns whatever
-    arrives into {"stream": True, "out": ...} frames, which the connection
-    thread forwards ahead of the final result. One solve at a time and only
-    the worker redirects, so the juggling is race-free."""
-    import threading as _threading
-    r, w = os.pipe()
-    saved = os.dup(1)
-    os.dup2(w, 1)
-    os.close(w)
+    Installed BEFORE Julia can boot, permanently — that is the whole point:
+    Julia's libuv wraps and duplicates whatever descriptors it sees at boot,
+    and every Julia print afterwards writes to those private duplicates,
+    immune to any later fd swap. (A per-solve dup2 streamed Ipopt's C-level
+    output and silently missed MadNLP's — the test used Ipopt.) With pipes
+    standing from startup, Julia captures the pipes, and pump threads
+    deliver chunks to the active job's client — or to the daemon's real
+    terminal when nothing is running."""
 
-    def pump():
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._sink = None
+        for fd, key in ((1, "out"), (2, "err")):
+            r, w = os.pipe()
+            orig = os.dup(fd)
+            os.dup2(w, fd)
+            os.close(w)
+            threading.Thread(target=self._pump, args=(r, key, orig),
+                             daemon=True).start()
+
+    def _pump(self, r, key, orig):
         while True:
             chunk = os.read(r, 4096)
             if not chunk:
-                os.close(r)
                 return
-            reply.put({"stream": True, "out": chunk.decode(errors="replace")})
+            with self._lock:
+                sink = self._sink
+            if sink is not None:
+                sink.put({"stream": True,
+                          key: chunk.decode(errors="replace")})
+            else:
+                with contextlib.suppress(OSError):
+                    os.write(orig, chunk)
 
-    t = _threading.Thread(target=pump, daemon=True)
-    t.start()
-    try:
-        yield
-    finally:
-        os.dup2(saved, 1)       # closes the pipe's last write end -> pump EOF
-        os.close(saved)
-        t.join(timeout=5)
+    @contextlib.contextmanager
+    def to(self, reply):
+        with self._lock:
+            self._sink = reply
+        try:
+            yield
+        finally:
+            # Julia's libuv flushes line-wise but asynchronously: give the
+            # tail of the log a beat to cross before the final frame.
+            time.sleep(0.05)
+            with self._lock:
+                self._sink = None
 
 
-def _work(jobs, state, stop, cap, idle_exit=None, reassert=None):
+def _work(jobs, state, stop, cap, idle_exit=None, reassert=None,
+          router=None):
     """The main-thread loop: everything that touches Julia happens here.
     The instance table lives here too — main-thread-confined, like Julia.
 
@@ -305,12 +325,9 @@ def _work(jobs, state, stop, cap, idle_exit=None, reassert=None):
             continue
         with state.job(payload.get("label") or "solve"):
             try:
-                if kind == "SOLVE":
-                    with _stdout_to(reply):
-                        result = _solve(payload, instances, cap, state)
-                else:
+                with router.to(reply):
                     result = _solve(payload, instances, cap, state,
-                                    build_only=True)
+                                    build_only=(kind == "BUILD"))
                 if kind == "SOLVE" and result.get("ok"):
                     # neither a build nor a need_record round is a solve
                     with state._lock:
@@ -465,10 +482,12 @@ def serve(path=None, max_instances=32, idle_exit=None):
 
     threading.Thread(target=_accept, args=(listener, jobs, state, stop),
                      daemon=True).start()
+    # fd 1 must be ours before Julia exists; see _StdoutRouter.
+    router = _OutputRouter()
     print(f"madsuite: warm session on {path} (C-c to close)", flush=True)
     try:
         _work(jobs, state, stop, max_instances, idle_exit,
-              reassert=_own_sigint)
+              reassert=_own_sigint, router=router)
     except KeyboardInterrupt:
         print("\nmadsuite: closing")
     finally:

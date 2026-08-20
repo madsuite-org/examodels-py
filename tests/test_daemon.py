@@ -491,3 +491,18 @@ def test_ctrl_c_mid_solve_finishes_then_closes(sockdir, monkeypatch):
         rc = None
     assert rc is not None, "the daemon did not exit once the solve finished"
     assert not os.path.exists(path)
+
+
+@requires("madnlp")
+def test_julia_solver_output_streams_too(daemon, monkeypatch, capsys):
+    """MadNLP prints from Julia, whose libuv captures stdout at boot — the
+    original per-solve redirect streamed only C-level (Ipopt) output and
+    silently missed this. The lifetime router must catch both."""
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
+    core, _x = _rosenbrock(8)
+    sol = exa.Model(core).solve(solver="madnlp")      # chatty by default
+    assert sol.success
+    out = capsys.readouterr().out
+    assert "MadNLP" in out or "iter" in out, \
+        f"no MadNLP log reached the client (got {len(out)} bytes)"
+    assert "EXIT" in out

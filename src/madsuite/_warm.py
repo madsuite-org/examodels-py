@@ -148,10 +148,10 @@ def _build_lease(record, key, args, label, raise_errors=False):
     base = {"op": "BUILD", "label": label, "key": key, "args": args}
     try:
         _wire.send(sock, {**base, "record": None})
-        reply = _wire.recv(sock)
+        reply = _recv_streaming(sock)      # a build streams too (boot, replay)
         if reply is not None and reply.get("need_record"):
             _wire.send(sock, {**base, "record": record})
-            reply = _wire.recv(sock)
+            reply = _recv_streaming(sock)
     except (OSError, ConnectionError):
         reply = None
     if reply is None or not reply.get("ok"):
@@ -163,15 +163,19 @@ def _build_lease(record, key, args, label, raise_errors=False):
 
 
 def _recv_streaming(sock):
-    """The final reply, printing solver-output frames as they arrive — the
-    iteration log lands in this terminal, as it would for an eager solve."""
+    """The final reply, mirroring solver output as it arrives — stdout and
+    stderr both, so a daemon run reads exactly like running it directly."""
     import sys
     while True:
         reply = _wire.recv(sock)
         if reply is None or not reply.get("stream"):
             return reply
-        sys.stdout.write(reply.get("out", ""))
-        sys.stdout.flush()
+        if reply.get("out"):
+            sys.stdout.write(reply["out"])
+            sys.stdout.flush()
+        if reply.get("err"):
+            sys.stderr.write(reply["err"])
+            sys.stderr.flush()
 
 
 def _mapped(err):
