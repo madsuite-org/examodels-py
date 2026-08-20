@@ -145,7 +145,9 @@ def _build_lease(record, key, args, label, raise_errors=False):
     sock = _wire.connect(_wire.socket_path(), timeout=15.0)
     if sock is None:
         return None
-    base = {"op": "BUILD", "label": label, "key": key, "args": args}
+    import sys
+    base = {"op": "BUILD", "label": label, "key": key, "args": args,
+            "tty": sys.stdout.isatty()}
     try:
         _wire.send(sock, {**base, "record": None})
         reply = _recv_streaming(sock)      # a build streams too (boot, replay)
@@ -162,20 +164,43 @@ def _build_lease(record, key, args, label, raise_errors=False):
     return sock
 
 
+_ANSI = None
+
+
+def _plain(text, carry):
+    """`text` with ANSI sequences removed, holding back a partial escape at
+    the chunk boundary (chunks split anywhere, including mid-sequence)."""
+    global _ANSI
+    if _ANSI is None:
+        import re
+        _ANSI = re.compile("\x1b\\[[0-9;]*[A-Za-z]")
+    text = carry[0] + text
+    cut = text.rfind("\x1b")
+    if cut != -1 and _ANSI.match(text, cut) is None:
+        text, carry[0] = text[:cut], text[cut:]
+    else:
+        carry[0] = ""
+    return _ANSI.sub("", text)
+
+
 def _recv_streaming(sock):
     """The final reply, mirroring solver output as it arrives — stdout and
-    stderr both, so a daemon run reads exactly like running it directly."""
+    stderr both, so a daemon run reads exactly like running it directly.
+    The daemon always sends color; a non-terminal client strips it, just as
+    a directly-run solver would have withheld it."""
     import sys
+    carries = {"out": [""], "err": [""]}
     while True:
         reply = _wire.recv(sock)
         if reply is None or not reply.get("stream"):
             return reply
-        if reply.get("out"):
-            sys.stdout.write(reply["out"])
-            sys.stdout.flush()
-        if reply.get("err"):
-            sys.stderr.write(reply["err"])
-            sys.stderr.flush()
+        for key, stream in (("out", sys.stdout), ("err", sys.stderr)):
+            chunk = reply.get(key)
+            if chunk:
+                if not stream.isatty():
+                    chunk = _plain(chunk, carries[key])
+                stream.write(chunk)
+                stream.flush()
 
 
 def _mapped(err):
@@ -233,9 +258,11 @@ class DaemonModel(Model):
         # Key first, record only on demand (an eviction under the daemon's
         # cap); parameter values always cross in full — they live outside
         # both digests, so the instance's last values say nothing about ours.
+        import sys
         base = {"op": "SOLVE", "label": self._label, "key": self._key,
                 "args": self._args, "params": self._all_params(),
-                "solver": solver, "options": options}
+                "solver": solver, "options": options,
+                "tty": sys.stdout.isatty()}
         for _attempt in (1, 2):
             sock = self._sock
             if sock is None:

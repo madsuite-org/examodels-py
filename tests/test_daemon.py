@@ -506,3 +506,25 @@ def test_julia_solver_output_streams_too(daemon, monkeypatch, capsys):
     assert "MadNLP" in out or "iter" in out, \
         f"no MadNLP log reached the client (got {len(out)} bytes)"
     assert "EXIT" in out
+
+
+@requires("madnlp")
+def test_color_follows_the_clients_terminal(daemon, monkeypatch, capsys):
+    """Julia sees a pipe (the router) and would disable color at boot; the
+    client's TTY-ness must decide instead — codes when a human terminal is
+    on the other end, clean text when piped."""
+    import sys
+    monkeypatch.setenv("MADSUITE_DAEMON", daemon)
+
+    core, _x = _rosenbrock(8)
+    model = exa.Model(core)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True, raising=False)
+    assert model.solve(solver="madnlp").success
+    colored = capsys.readouterr().out
+    assert "\x1b[" in colored, "a tty client should get ANSI color"
+
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False, raising=False)
+    assert model.solve(solver="madnlp").success
+    plain = capsys.readouterr().out
+    assert "\x1b[" not in plain, "a piped client should get clean text"
+    assert "EXIT" in plain

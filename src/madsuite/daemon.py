@@ -325,6 +325,7 @@ def _work(jobs, state, stop, cap, idle_exit=None, reassert=None,
             continue
         with state.job(payload.get("label") or "solve"):
             try:
+                _set_color(payload.get("tty", False))
                 with router.to(reply):
                     result = _solve(payload, instances, cap, state,
                                     build_only=(kind == "BUILD"))
@@ -343,6 +344,20 @@ def _work(jobs, state, stop, cap, idle_exit=None, reassert=None,
             # Julia (booted by the job we just ran) installs its own SIGINT
             # handling; take C-c back so closing the daemon stays ours.
             reassert()
+
+
+def _set_color(_tty):
+    """Julia decides color by whether ITS stdout is a tty — our pipe, so it
+    decides 'no' at boot. Force it ON here instead, unconditionally: turning
+    it back off per job proved unreliable (solver loggers cache the decision
+    at construction), so the daemon always emits codes and the CLIENT strips
+    them when its own stdout is not a terminal — the one process that knows,
+    deciding deterministically. Net behavior matches a direct run: humans
+    see color, pipes get clean text."""
+    from . import _bridge as _b
+    if _b.loaded():
+        with contextlib.suppress(Exception):
+            _b.seval("Core.eval(Base, :(have_color = true))")
 
 
 def _refresh_mem(state):
